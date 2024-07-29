@@ -5,10 +5,10 @@ with open('README.md', 'r', encoding='utf-8') as readable_file:
 
 setup(
     name="tor_runner",
-    version="1.0.1",
+    version="1.0.2",
     description="TorRunner is designed to facilitate the deployment of Tor hidden services.",
     long_description=long_description,
-    long_description_content_type='text/markdown',  # Specify the content type
+    long_description_content_type='text/markdown',
     author='TN3W',
     author_email='tn3wA8xxfuVMs2@proton.me',
     url='https://github.com/tn3w/TorRunner',

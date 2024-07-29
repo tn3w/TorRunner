@@ -56,9 +56,7 @@ def get_work_dir():
 
     try:
         file_path = pkg_resources.resource_filename('tor_runner', '')
-    except Exception as exc:
-        print('pkg_resources may not be installed, use '+
-              f'`pip install pkg_resources`. Exception: {exc}')
+    except Exception:
         return CURRENT_DIR
 
     if not isinstance(file_path, str):
@@ -412,6 +410,29 @@ class TorRunner:
         return "vanilla"
 
 
+    def find_hostnames(self) -> List[str]:
+        """
+        Function for finding hostnames.
+
+        :return: List of hostnames.
+        """
+
+        hostnames = []
+
+        for hs_dir in (self.hs_dirs if len(self.hs_dirs)\
+                        > 0 else [HIDDEN_SERVICE_DIRECTORY_PATH]):
+
+            hostname_path = os.path.join(hs_dir, 'hostname')
+            try:
+                with open(hostname_path, 'r', encoding = 'utf-8') as file:
+                    hostname = file.read().strip()
+                    hostnames.append(f"http://{hostname}")
+            except Exception as e:
+                print(f"Error reading {hostname_path}: {e}")
+
+        return hostnames
+
+
     def configure_tor(self) -> str:
         """
         Function for configuring Tor.
@@ -531,7 +552,7 @@ class TorRunner:
         os.remove(torrc_path)
 
 
-    def run(self, host: str = "127.0.0.1", port: int = 5000) -> None:
+    def run(self, host: str = '127.0.0.1', port: int = 5000) -> None:
         """
         Function for running Tor runner.
 
@@ -539,8 +560,8 @@ class TorRunner:
         :param port: the port to listen on.
         """
 
-        if host == "localhost":
-            host = "127.0.0.1"
+        if host == 'localhost':
+            host = '127.0.0.1'
 
         self.host = host
         self.port = port
@@ -553,6 +574,8 @@ class TorRunner:
         remove_torrc_thread.start()
 
         atexit.register(self.terminate_tor)
+
+        print(' * Tor running on ' + ', '.join(self.find_hostnames()))
 
         try:
             if self.app:
