@@ -581,6 +581,7 @@ class TorRunner:
             if self.app:
                 self.app.run(self.host, self.port)
             else:
+                print(' * Listening on http://' + self.host + ':' + str(self.port) + '...')
                 try:
                     while self.running:
                         time.sleep(1)
