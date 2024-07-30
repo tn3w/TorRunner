@@ -110,21 +110,39 @@ LOG_FILE_PATH: Final[str] = os.path.join(DATA_DIRECTORY_PATH, "tor.log")
 
 TOR_ARCHIVE_FILE_PATH: Final[str] = os.path.join(DATA_DIRECTORY_PATH, "tor.tar.gz")
 TOR_DIRECTORY_PATH: Final[str] = os.path.join(DATA_DIRECTORY_PATH, "tor")
-TOR_FILE_PATHS: Final[dict] = {
+
+DEFAULT_TOR_FILE_PATHS: Final[str] = {
     "geoip4": os.path.join(TOR_DIRECTORY_PATH, "data", "geoip"),
     "geoip6": os.path.join(TOR_DIRECTORY_PATH, "data", "geoip6"),
-    "pt_config": os.path.join(TOR_DIRECTORY_PATH, "tor", "pluggable_transports", "pt_config.json"),
     "lyrebird": os.path.join(
         TOR_DIRECTORY_PATH, "tor", "pluggable_transports", "lyrebird" + FILE_EXT),
     "snowflake": os.path.join(
         TOR_DIRECTORY_PATH, "tor", "pluggable_transports", "snowflake-client" + FILE_EXT),
     "conjure": os.path.join(
-        TOR_DIRECTORY_PATH, "tor", "pluggable_transports", "conjure-client" + FILE_EXT)
+        TOR_DIRECTORY_PATH, "tor", "pluggable_transports", "conjure-client" + FILE_EXT),
+    "exe": os.path.join(
+        TOR_DIRECTORY_PATH, "tor", ("libTor.so" if OPERATING_SYSTEM == "Linux" else "Tor.exe")),
 }
-TOR_EXE_FILE_PATH: Final[str] = os.path.join(
-    TOR_DIRECTORY_PATH, "tor",
-    ("libTor.so" if OPERATING_SYSTEM == 'android' else "tor" + FILE_EXT)
-)
+
+POTENTIAL_TOR_DIRECTORIES: Final[dict] = {
+    "windows": [
+        os.path.join(os.environ.get("USERPROFILE", ""), "Desktop", "Tor Browser"),
+        os.path.join(os.environ.get("PROGRAMFILES", ""), "Tor Browser"),
+        os.path.join(os.environ.get("PROGRAMFILES(X86)", ""), "Tor Browser"),
+    ],
+    "macos": [
+        "/Applications/Tor Browser.app/Contents/Resources"
+    ],
+    "linux": [
+        os.path.expanduser("~/.local/share/tor-browser"),
+        "/usr/local/tor",
+        "/usr/bin/tor",
+        "/usr/local/bin/tor"
+    ],
+    "android": [
+        os.path.join(os.environ.get("HOME", ""), "tor")
+    ]
+}
 
 PLUGGABLE_TRANSPORTS: Final[dict] = {
     "lyrebird": ["meek_lite", "obfs2", "obfs3", "obfs4", "scramblesuit", "webtunnel"],
@@ -156,6 +174,36 @@ def has_permission(path: str, mode: str = 'r') -> bool:
     used_mode = PERMISSION_MODES.get(mode, os.R_OK)
 
     return os.access(path, used_mode)
+
+
+def find_file(file_name: str, directory_path: str) -> Optional[str]:
+    """
+    Finds the specified file in the specified directory.
+
+    :param file_name: The name of the file to find.
+    :param directory_path: The path to the directory.
+    :return: The relative path to the file if found, None otherwise.
+    """
+
+    if not os.path.isdir(directory_path)\
+        or not has_permission(directory_path, 'r'):
+        return None
+
+    for entry in os.listdir(directory_path):
+        full_path = os.path.join(directory_path, entry)
+
+        if os.path.isdir(full_path):
+            full_path = find_file(file_name, full_path)
+
+            if isinstance(full_path, str):
+                return full_path
+
+            continue
+
+        if entry.lower() == file_name.lower():
+            return full_path
+
+    return None
 
 
 def request_url(url: str, timeout: int = 3,
@@ -343,6 +391,36 @@ def install_tor() -> None:
     os.remove(TOR_ARCHIVE_FILE_PATH)
 
 
+def find_tor_file_paths() -> Optional[dict]:
+    """
+    Finds the Tor directory based on the operating system and architecture.
+
+    :return: The path to the Tor directory.
+    """
+
+    potential_directories = POTENTIAL_TOR_DIRECTORIES.get(OPERATING_SYSTEM, [])
+
+    for dir_path in potential_directories:
+        tor_file_paths = {}
+        for key, file_name in [
+                ('geoip4', 'geoip'),
+                ('geoip6', 'geoip6'),
+                ('lyrebird', 'lyrebird' + FILE_EXT),
+                ('snowflake', 'snowflake-client' + FILE_EXT),
+                ('conjure', 'conjure-client' + FILE_EXT),
+                ('exe', 'libTor.so' if OPERATING_SYSTEM == "Linux" else 'Tor.exe'),
+            ]:
+
+            found_file_path = find_file(file_name, dir_path)
+            if found_file_path is not None:
+                tor_file_paths[key] = found_file_path
+
+        if len(tor_file_paths) == 6:
+            return tor_file_paths
+
+    return None
+
+
 class TorRunner:
     """
     TorRunner is a class that runs Tor based on the operating system and architecture.
@@ -366,12 +444,27 @@ class TorRunner:
         self.host = None
         self.port = None
 
+        hs_dirs = hs_dirs or []
+
+        hidden_directories = []
+        for hs_dir in hs_dirs:
+            if not '/' in hs_dir and not '\\' in hs_dir:
+                hidden_directories.append(os.path.join(DATA_DIRECTORY_PATH, hs_dir))
+
         self.bridges = bridges or []
-        self.hs_dirs = hs_dirs or []
+        self.hs_dirs = hidden_directories
 
-        if not os.path.isfile(TOR_EXE_FILE_PATH):
-            install_tor()
+        tor_file_paths = find_tor_file_paths()
 
+        if not isinstance(tor_file_paths, dict)\
+            or tor_file_paths.keys() != DEFAULT_TOR_FILE_PATHS.keys():
+
+            if not os.path.isfile(DEFAULT_TOR_FILE_PATHS["exe"]):
+                install_tor()
+
+            tor_file_paths = DEFAULT_TOR_FILE_PATHS
+
+        self.tor_file_paths = tor_file_paths
         self.tor_process = None
         self.running = True
 
@@ -410,6 +503,23 @@ class TorRunner:
         return "vanilla"
 
 
+    @staticmethod
+    def delete_lock() -> None:
+        """
+        Function for deleting lock.
+        """
+
+        lock_file_path = os.path.join(DATA_DIRECTORY_PATH, 'lock')
+
+        if os.path.isfile(lock_file_path)\
+            and has_permission(lock_file_path, 'w'):
+
+            try:
+                os.remove(lock_file_path)
+            except Exception:
+                pass
+
+
     def find_hostnames(self) -> List[str]:
         """
         Function for finding hostnames.
@@ -423,6 +533,18 @@ class TorRunner:
                         > 0 else [HIDDEN_SERVICE_DIRECTORY_PATH]):
 
             hostname_path = os.path.join(hs_dir, 'hostname')
+
+            file_exists = False
+            for _ in range(20):
+                if os.path.isfile(hostname_path):
+                    file_exists = True
+                    break
+
+                time.sleep(0.2)
+
+            if not file_exists:
+                continue
+
             try:
                 with open(hostname_path, 'r', encoding = 'utf-8') as file:
                     hostname = file.read().strip()
@@ -443,14 +565,13 @@ class TorRunner:
         control_port, socks_port = self.get_ports()
 
         configuration = {
-            "GeoIPFile": TOR_FILE_PATHS["geoip4"],
-            "GeoIPv6File": TOR_FILE_PATHS["geoip6"],
+            "GeoIPFile": self.tor_file_paths["geoip4"],
+            "GeoIPv6File": self.tor_file_paths["geoip6"],
             "DataDirectory": DATA_DIRECTORY_PATH,
             "Control" + ("Port" if OPERATING_SYSTEM == 'windows' else "Socket"): control_port,
             "SocksPort": socks_port,
             "CookieAuthentication": 1,
             "CookieAuthFile": os.path.join(DATA_DIRECTORY_PATH, 'cookie.txt'),
-            "AvoidDiskWrites": 1 if len(self.hs_dirs) > 0 else None,
             "Log": "notice stdout",
             "ClientUseIPv6": 1,
             "ClientPreferIPv6ORPort": 1,
@@ -471,7 +592,7 @@ class TorRunner:
                 if bridge_type in required_pts:
                     configuration["ClientTransportPlugins"].append(
                         ','.join(bridge_types) + " exec "
-                        + TOR_FILE_PATHS.get(pluggable_transport)
+                        + self.tor_file_paths.get(pluggable_transport)
                     )
 
                     break
@@ -515,18 +636,19 @@ class TorRunner:
         """
 
         splitter = '\n' if os.path.isfile(LOG_FILE_PATH) else ''
+
         with open(LOG_FILE_PATH, 'a', encoding = 'utf-8') as log_file:
             log_file.write(splitter + '---- ' + time.strftime('%Y-%m-%d %H:%M:%S')
                             + ' New Tor Session ----\n')
 
         with open(LOG_FILE_PATH, 'a', encoding = 'utf-8') as log_file:
             tor_process = subprocess.Popen(
-                [TOR_EXE_FILE_PATH, "-f", torrc_path],
+                [self.tor_file_paths["exe"], "-f", torrc_path],
                 stdout = log_file, stderr = log_file
             )
             self.tor_process = tor_process
 
-            tor_process.wait()
+        tor_process.wait()
 
 
     def terminate_tor(self) -> None:
@@ -537,19 +659,8 @@ class TorRunner:
         try:
             self.tor_process.terminate()
         finally:
+            self.delete_lock()
             self.running = False
-
-
-    def remove_torrc(self, torrc_path: str) -> None:
-        """
-        Function for removing torrc file.
-
-        :param torrc_path: Path to torrc file.
-        """
-
-        time.sleep(10)
-
-        os.remove(torrc_path)
 
 
     def run(self, host: str = '127.0.0.1', port: int = 5000) -> None:
@@ -567,11 +678,10 @@ class TorRunner:
         self.port = port
 
         torrc_path = self.configure_tor()
+
+        self.delete_lock()
         run_tor_thread = Thread(target = self.run_tor, args = (torrc_path, ))
         run_tor_thread.start()
-
-        remove_torrc_thread = Thread(target = self.remove_torrc, args = (torrc_path, ))
-        remove_torrc_thread.start()
 
         atexit.register(self.terminate_tor)
 
