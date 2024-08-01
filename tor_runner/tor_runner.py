@@ -19,22 +19,15 @@ from threading import Thread
 from typing import List, Optional, Final, Tuple
 
 try:
-    from tor_runner.utils import WORK_DIR, get_system_information, request_url,\
-        extract_anchors, download_file, extract_tar, find_file, find_available_port,\
-        has_permission
+    from tor_runner.utils import DATA_DIRECTORY_PATH, OPERATING_SYSTEM, ARCHITECTURE, request_url,\
+        extract_anchors, download_file, extract_tar, find_file, find_available_port, has_permission
 except ImportError:
-    from utils import WORK_DIR, get_system_information, request_url, extract_anchors,\
-        download_file, extract_tar, find_file, find_available_port, has_permission
+    from utils import DATA_DIRECTORY_PATH, OPERATING_SYSTEM, ARCHITECTURE, request_url,\
+        extract_anchors, download_file, extract_tar, find_file, find_available_port, has_permission
 
 
-OPERATING_SYSTEM, ARCHITECTURE = get_system_information()
 FILE_EXT: Final[str] = '.exe' if OPERATING_SYSTEM == 'windows' else ''
-
-DATA_DIRECTORY_PATH: Final[str] = os.path.join(WORK_DIR, "data")
 HIDDEN_SERVICE_DIRECTORY_PATH: Final[str] = os.path.join(DATA_DIRECTORY_PATH, "hs")
-
-if not os.path.isdir(DATA_DIRECTORY_PATH):
-    os.makedirs(DATA_DIRECTORY_PATH, exist_ok = True)
 
 LOG_FILE_PATH: Final[str] = os.path.join(DATA_DIRECTORY_PATH, "tor.log")
 

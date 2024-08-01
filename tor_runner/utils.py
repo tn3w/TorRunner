@@ -1,6 +1,7 @@
 import os
 import socket
 import tarfile
+import tempfile
 import platform
 import urllib.request
 from html.parser import HTMLParser
@@ -49,32 +50,10 @@ def get_work_dir():
     return file_path
 
 WORK_DIR: Final[str] = get_work_dir()
+DATA_DIRECTORY_PATH: Final[str] = os.path.join(WORK_DIR, "data")
 
-
-def has_permission(path: str, mode: str = 'r') -> bool:
-    """
-    Determines if a file can be accessed with the specified mode at the specified path.
-
-    :param path: A string representing the file path to check.
-    :param mode: A string representing the access mode. Default is 'w' for write access.
-    :return: Returns True if the file at the given path can be accessed with the
-             specified mode, False otherwise.
-    """
-
-    if not os.path.isfile(path):
-        path = os.path.dirname(path)
-        while not os.path.isdir(path):
-            if len(path) < 5:
-                break
-
-            path = os.path.dirname(path)
-
-        if not os.path.isdir(path):
-            return False
-
-    used_mode = PERMISSION_MODES.get(mode, os.R_OK)
-
-    return os.access(path, used_mode)
+if not os.path.isdir(DATA_DIRECTORY_PATH):
+    os.makedirs(DATA_DIRECTORY_PATH, exist_ok = True)
 
 
 def get_system_information() -> Optional[Tuple[str, str]]:
@@ -107,6 +86,34 @@ def get_system_information() -> Optional[Tuple[str, str]]:
     architecture = architecture_mappings.get(architecture, architecture)
 
     return operating_system, architecture
+
+OPERATING_SYSTEM, ARCHITECTURE = get_system_information()
+
+
+def has_permission(path: str, mode: str = 'r') -> bool:
+    """
+    Determines if a file can be accessed with the specified mode at the specified path.
+
+    :param path: A string representing the file path to check.
+    :param mode: A string representing the access mode. Default is 'w' for write access.
+    :return: Returns True if the file at the given path can be accessed with the
+             specified mode, False otherwise.
+    """
+
+    if not os.path.isfile(path):
+        path = os.path.dirname(path)
+        while not os.path.isdir(path):
+            if len(path) < 5:
+                break
+
+            path = os.path.dirname(path)
+
+        if not os.path.isdir(path):
+            return False
+
+    used_mode = PERMISSION_MODES.get(mode, os.R_OK)
+
+    return os.access(path, used_mode)
 
 
 def find_file(file_name: str, directory_path: str) -> Optional[str]:
@@ -175,6 +182,9 @@ def download_file(url: str, file_path: str, timeout: int = 3) -> bool:
     :return: True if the file was downloaded and saved successfully, False otherwise.
     """
 
+    if os.path.isfile(file_path):
+        return True
+
     req = urllib.request.Request(url, headers = REQUEST_HEADERS)
 
     try:
@@ -187,6 +197,17 @@ def download_file(url: str, file_path: str, timeout: int = 3) -> bool:
         print(f"Download failed with exception: {exc}")
 
     return False
+
+
+def temp_fp(file_name: str) -> str:
+    """
+    Returns a temporary file path.
+
+    :param file_name: The name of the temporary file.
+    :return: The temporary file path.
+    """
+
+    return os.path.join(tempfile.gettempdir(), file_name)
 
 
 def extract_tar(archive_file_path: str, directory_path: str) -> None:
