@@ -108,11 +108,40 @@ def windows_download_latest() -> str:
                 break
 
     if download_url is None:
-        raise OSError("Tesseract download URL not found. Please install manual for your "+
-                      "system from https://digi.bib.uni-mannheim.de/tesseract/ and install it.")
+        raise OSError('Tesseract download URL not found. Please install manual for your '+
+                      'system from https://digi.bib.uni-mannheim.de/tesseract/ and install it.')
 
-    temp_file_path = temp_fp(f"tesseract-{correct_architecture}.exe")
-    print(" * Downloading Tesseract...")
+    temp_file_path = temp_fp(f'tesseract-{correct_architecture}.exe')
+    print(' * Downloading Tesseract...')
+    download_file(download_url, temp_file_path)
+
+    return temp_file_path
+
+
+def windows64_download_latest() -> str:
+    """
+    Download the latest version of Tesseract for Windows 64-bit.
+
+    :return: The path to the downloaded file.
+    """
+
+    url = 'https://api.github.com/repos/UB-Mannheim/tesseract/releases/latest'
+
+    download_url = None
+    release_data = request_url(url, return_as_json = True)
+
+    pattern = re.compile(r'tesseract.*ocr.*w64.*setup.*\.exe', re.IGNORECASE)
+
+    for asset in release_data.get('assets', []):
+        if pattern.match(asset['name']):
+            download_url = asset['browser_download_url']
+            break
+
+    if download_url is None:
+        return windows_download_latest()
+
+    temp_file_path = temp_fp('tesseract-w64.exe')
+    print(' * Downloading Tesseract...')
     download_file(download_url, temp_file_path)
 
     return temp_file_path
@@ -163,7 +192,11 @@ def run_wizard(tesseract_file_path: str) -> None:
 
 if __name__ == "__main__":
     if OPERATING_SYSTEM == "windows":
-        file_path = windows_download_latest()
+        if ARCHITECTURE == "x86_64":
+            file_path = windows64_download_latest()
+        else:
+            file_path = windows_download_latest()
+
         run_wizard(file_path)
     else:
         raise OSError("Unsupported operating system.")

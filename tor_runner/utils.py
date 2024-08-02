@@ -1,4 +1,5 @@
 import os
+import json
 import socket
 import tarfile
 import tempfile
@@ -147,13 +148,15 @@ def find_file(file_name: str, directory_path: str) -> Optional[str]:
 
 
 def request_url(url: str, timeout: int = 3,
-                return_as_bytes: bool = True) -> Optional[Union[str, dict, bytes]]:
+                return_as_bytes: bool = True,
+                return_as_json: bool = False) -> Optional[Union[str, dict, bytes]]:
     """
     Makes an request and returns the data in the correct format.
 
     :param url: The url to send the GET Request to.
     :param timeout: The duration after which the connection is cancelled.
     :param return_as_bytes: If True, the response data will be returned as bytes.
+    :param return_as_json: If True, the response data will be returned as JSON.
     """
 
     req = urllib.request.Request(url, headers = REQUEST_HEADERS)
@@ -165,7 +168,12 @@ def request_url(url: str, timeout: int = 3,
         if return_as_bytes:
             return response_data
 
-        return response_data.decode('utf-8')
+        string_data = response_data.decode('utf-8')
+
+        if not return_as_json:
+            return string_data
+
+        return json.load(string_data)
     except Exception as exc:
         print(f"Request failed with exception: {exc}")
 
