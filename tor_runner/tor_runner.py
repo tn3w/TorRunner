@@ -310,7 +310,7 @@ class TorRunner:
             "GeoIPFile": self.tor_file_paths["geoip4"],
             "GeoIPv6File": self.tor_file_paths["geoip6"],
             "DataDirectory": DATA_DIRECTORY_PATH,
-            "Control" + ("Port" if OPERATING_SYSTEM == 'windows' else "Socket"): control_port,
+            "ControlPort": control_port,
             "SocksPort": socks_port,
             "CookieAuthentication": 1,
             "CookieAuthFile": os.path.join(DATA_DIRECTORY_PATH, 'cookie.txt'),
@@ -383,9 +383,21 @@ class TorRunner:
             log_file.write(splitter + '---- ' + time.strftime('%Y-%m-%d %H:%M:%S')
                             + ' New Tor Session ----\n')
 
+        command = [self.tor_file_paths["exe"], "-f", torrc_path]
+
+        if OPERATING_SYSTEM == 'linux':
+            current_ld_library_path = os.environ.get('LD_LIBRARY_PATH', '')
+            path_to_extend = os.path.join(TOR_DIRECTORY_PATH, 'tor')
+
+            if path_to_extend not in current_ld_library_path:
+                new_ld_library_path = f'{current_ld_library_path}:{path_to_extend}'\
+                    if current_ld_library_path else path_to_extend
+
+            os.environ['LD_LIBRARY_PATH'] = new_ld_library_path
+
         with open(LOG_FILE_PATH, 'a', encoding = 'utf-8') as log_file:
             tor_process = subprocess.Popen(
-                [self.tor_file_paths["exe"], "-f", torrc_path],
+                command,
                 stdout = log_file, stderr = log_file
             )
             self.tor_process = tor_process
