@@ -44,7 +44,7 @@ DEFAULT_TOR_FILE_PATHS: Final[str] = {
     "conjure": os.path.join(
         TOR_DIRECTORY_PATH, "tor", "pluggable_transports", "conjure-client" + FILE_EXT),
     "exe": os.path.join(
-        TOR_DIRECTORY_PATH, "tor", ("libTor.so" if OPERATING_SYSTEM == "Linux" else "Tor.exe")),
+        TOR_DIRECTORY_PATH, "tor", ("libTor.so" if OPERATING_SYSTEM == "android" else "tor" + FILE_EXT)),
 }
 
 POTENTIAL_TOR_DIRECTORIES: Final[dict] = {
@@ -127,7 +127,7 @@ def find_tor_file_paths() -> Optional[dict]:
                 ('lyrebird', 'lyrebird' + FILE_EXT),
                 ('snowflake', 'snowflake-client' + FILE_EXT),
                 ('conjure', 'conjure-client' + FILE_EXT),
-                ('exe', 'libTor.so' if OPERATING_SYSTEM == "Linux" else 'Tor.exe'),
+                ('exe', 'libTor.so' if OPERATING_SYSTEM == "android" else 'tor' + FILE_EXT),
             ]:
 
             found_file_path = find_file(file_name, dir_path)
