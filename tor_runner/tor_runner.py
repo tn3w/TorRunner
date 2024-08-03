@@ -417,6 +417,21 @@ class TorRunner:
             self.running = False
 
 
+    def only_allow_tor(self) -> None:
+        """
+        An before_request decorator for only
+        allowing connections comming Tor.
+        """
+
+        from flask import request, abort
+
+        hostnames = self.find_hostnames()
+        hostnames = [hostname.replace('http://', '') for hostname in hostnames]
+
+        if not request.host in hostnames:
+            return abort(403)
+
+
     def run(self, host: str = '127.0.0.1', port: int = 5000) -> None:
         """
         Function for running Tor runner.
