@@ -1,11 +1,11 @@
 from setuptools import setup, find_packages
 
 with open('README.md', 'r', encoding='utf-8') as readable_file:
-    long_description = readable_file.read().split('> [!NOTE]')[0]
+    long_description = readable_file.read()
 
 setup(
     name="tor_runner",
-    version="1.1.1",
+    version="1.2",
     description="TorRunner is designed to facilitate the deployment of Tor hidden services.",
     long_description=long_description,
     long_description_content_type='text/markdown',

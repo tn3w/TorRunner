@@ -4,12 +4,61 @@
 
 <br>
 
+## Examples
+
+### On the command line
+```bash
+tor_runner --help
+```
+
+Output:
+```
+usage: tor_runner [-h] [-p PORT] [-s [HIDDEN_SERVICE_DIRS ...]] [-b [BRIDGES ...]] [-d DEFAULT_BRIDGE_TYPE] [-q BRIDGE_QUANTITY] [--quiet]
+
+Run as Tor hidden service
+
+options:
+  -h, --help            show this help message and exit
+  -p PORT, --port PORT  Port to listen
+  -s [HIDDEN_SERVICE_DIRS ...], --hidden-service-dirs [HIDDEN_SERVICE_DIRS ...]
+                        List of hidden service directories
+  -b [BRIDGES ...], --bridges [BRIDGES ...]
+                        List of bridges for Tor
+  -d DEFAULT_BRIDGE_TYPE, --default-bridge-type DEFAULT_BRIDGE_TYPE
+                        Default bridge type
+  -q BRIDGE_QUANTITY, --bridge-quantity BRIDGE_QUANTITY
+                        How many bridges to use
+  --quiet               Run in quiet mode (no output)
+```
+
+---
+
+### Without an App
+```python
+from tor_runner import TorRunner
+
+# Uses 11 default obfs4 bridges to connect
+runner = TorRunner(
+    hs_dirs = ["/path/to/hs"], bridges = [],
+    default_bridge_type = "obfs4", bridge_quantity = 11
+)
+
+if __name__ == '__main__':
+    # Forwards 80 -> 5000 and 22 -> 22
+    runner.run([(80, 5000), (22, 22)], quite = False, wait = True)
+```
+
+---
+
+### For Flask
 ```python
 from flask import Flask
 from tor_runner import TorRunner
 
 app = Flask(__name__)
-runner = TorRunner(app)
+
+# Uses 11 default obfs4 bridges to connect
+runner = TorRunner(default_bridge_type = "obfs4", bridge_quantity = 11)
 
 @app.route('/')
 def index():
@@ -17,13 +66,35 @@ def index():
     Route accessible via the Tor network
     """
 
-    return 'Hello, anonymous guy!🖐️'
+    return 'Hello, Anonymous!🖐️'
 
 if __name__ == '__main__':
-    runner.run(host = 'localhost', port = 9000)
+    runner.flask_run(app, host = '127.0.0.1', port = 9000)
 ```
 
-With TorRunner, you can quickly configure your application to be accessible over the Tor network, providing anonymous access. This is particularly useful for creating secure and private communication channels, as the Tor network is known for its ability to conceal both the user's and the server's locations. By using TorRunner, developers can focus on building their applications without worrying about the complexities of Tor's underlying infrastructure.
+---
 
-> [!NOTE]
-> This is an beta release. Please report any issues or feedback to [tn3wA8xxfuVMs2@proton.me](mailto:tn3wA8xxfuVMs2@proton.me) or create a [GitHub issue](https://github.com/tn3w/TorRunner/issues).
+### For Sanic
+```python
+from sanic import Sanic, HTTPResponse
+from sanic.response import text
+from tor_runner import TorRunner
+
+app = Sanic(__name__)
+
+# Uses 11 default obfs4 bridges to connect
+runner = TorRunner(default_bridge_type = "obfs4", bridge_quantity = 11)
+
+@app.route('/')
+async def index(request) -> HTTPResponse
+    """
+    Route accessible via the Tor network
+    """
+
+    return 'Hello, Anonymous!🖐️'
+
+if __name__ == '__main__':
+    runner.sanic_run(app, host = '127.0.0.1', port = 8000, workers = 16)
+```
+
+---
