@@ -86,15 +86,13 @@ app = Sanic(__name__)
 runner = TorRunner(default_bridge_type = "obfs4", bridge_quantity = 11)
 
 @app.route('/')
-async def index(request) -> HTTPResponse
+async def index(request) -> HTTPResponse:
     """
     Route accessible via the Tor network
     """
 
-    return 'Hello, Anonymous!🖐️'
+    return text('Hello, Anonymous!🖐️')
 
 if __name__ == '__main__':
     runner.sanic_run(app, host = '127.0.0.1', port = 8000, workers = 16)
 ```
-
----
