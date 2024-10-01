@@ -515,7 +515,7 @@ class TorRunner:
         print("Starting Sanic now...\n")
 
         async def main_process_start(_app):
-            print(" " * 32 + "🧅 TOR:     Running Sanic on", ", ".join(self._hostnames), end = "")
+            print(" " * 32 + "🧅 TOR:   Running Sanic on", ", ".join(self._hostnames), end = "")
 
         app.register_listener(main_process_start, 'main_process_start')
         app.run(host, port, **kwargs)
