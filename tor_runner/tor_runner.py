@@ -18,6 +18,7 @@ import time
 import atexit
 import argparse
 import subprocess
+from itertools import chain
 from sys import argv as ARGUMENTS
 from typing import Optional, Tuple, List
 
@@ -31,6 +32,36 @@ from tor_runner.common import (
     find_available_port, find_hostnames, configuration_to_str,
     generate_secure_random_string, write
 )
+
+
+def parse_listener(listener_str: str) -> List[Tuple[int, int]]:
+    """
+    Parses a string of listener data into a list of tuples.
+
+    Args:
+        listener_str (str): A string containing listener coordinates in the format
+                            "x1,y1 x2,y2 ...".
+
+    Returns:
+        List[Tuple[int, int]]: A list of tuples, where each tuple contains two integers
+                               representing the coordinates of a listener. If the input
+                               string is not in the expected format or cannot be parsed,
+                               an empty list is returned.
+    """
+
+    try:
+        listeners = listener_str.split(" ")
+        listener_tuples = [
+            tuple(map(int, listener.split(',')))
+            for listener in listeners
+        ]
+
+        return listener_tuples
+
+    except ValueError:
+        pass
+
+    return []
 
 
 def verify_tor_installation() -> bool:
@@ -342,8 +373,7 @@ class TorRunner:
         self.bridges = bridges or []
         self.default_bridge_type = default_bridge_type
         self.bridge_quantity = bridge_quantity
-        self.hs_dirs = hidden_directories\
-            if len(hidden_directories) > 0 else [HIDDEN_SERVICE_DIRECTORY_PATH]
+        self.hs_dirs = hidden_directories
 
         if not verify_tor_installation():
             install_tor()
@@ -360,7 +390,10 @@ class TorRunner:
             List[str]: A list of hostnames found in the hidden service directories.
         """
 
-        return find_hostnames(self.hs_dirs)
+        hidden_service_directories = self.hs_dirs\
+            if len(self.hs_dirs) > 0 else [HIDDEN_SERVICE_DIRECTORY_PATH]
+
+        return find_hostnames(hidden_service_directories)
 
 
     def exit(self) -> None:
@@ -378,7 +411,8 @@ class TorRunner:
             delete(self.torrc_file_path)
 
 
-    def run(self, listeners: list, quite: bool = False, wait: bool = True) -> None:
+    def run(self, listeners: list, socks_port: Optional[int] = None,
+            quite: bool = False, wait: bool = True) -> None:
         """
         Runs the Tor process with the specified listeners and configuration.
 
@@ -393,13 +427,22 @@ class TorRunner:
         """
 
         if not verify_tor_installation():
+            if not quite:
+                print("Installing Tor...")
+
             install_tor()
+
+        hidden_service_directories = []
+        if len(listeners) > 0:
+            hidden_service_directories = self.hs_dirs\
+                if len(self.hs_dirs) > 0 else [HIDDEN_SERVICE_DIRECTORY_PATH]
 
         control_port, _ = self.get_ports()
         config = get_configuration(
-            control_port, self.hs_dirs, listeners,
+            control_port, hidden_service_directories, listeners,
             self.tor_data_directory_path, self.bridges,
-            self.default_bridge_type, self.bridge_quantity
+            self.default_bridge_type, self.bridge_quantity,
+            socks_port
         )
 
         config_string = configuration_to_str(config)
@@ -444,9 +487,11 @@ class TorRunner:
             if output:
                 percentage = get_percentage(output)
                 if not quite:
+                    progress.messages.append(output)
                     if percentage is not None:
-                        progress.messages.append(output)
                         progress.update(percentage)
+                    else:
+                        progress.update()
 
                 if percentage == 100:
                     os.remove(torrc_file_path)
@@ -464,8 +509,8 @@ class TorRunner:
                 sys.exit(return_code)
 
         if wait:
-            if not quite:
-                print("Running on", ", ".join(self._hostnames), end = "")
+            if not quite and len(hidden_service_directories) > 0:
+                print("Running on", ", ".join(find_hostnames(hidden_service_directories)), end = "")
             tor_process.wait()
 
 
@@ -530,34 +575,89 @@ def main() -> None:
         delete(DATA_DIRECTORY_PATH)
         sys.exit(0)
 
-    parser = argparse.ArgumentParser(description="Run as Tor hidden service")
-    parser.add_argument("-p", "--port", type = int, default=5000, help = "Port to listen")
-    parser.add_argument(
-        "-s", "--hidden-service-dirs", type = str, nargs='*',
-        help = "List of hidden service directories"
-    )
-    parser.add_argument("-b", "--bridges", type = str, nargs='*', help = "List of bridges for Tor")
-    parser.add_argument(
-        "-d", "--default-bridge-type", type = str,
-        default = None, help = "Default bridge type"
+    parser = argparse.ArgumentParser(
+        description = (
+            "Run as a Tor hidden service, allowing configuration "
+            "of listeners, hidden service directories, and bridges."
+        )
     )
     parser.add_argument(
-        "-q", "--bridge-quantity", type = int,
-        default = None, help = "How many bridges to use"
+        "-p", "--port",
+        type = int,
+        default = None,
+        help = "HTTP port for the hidden service to listen on."
     )
     parser.add_argument(
-        "--quiet", action="store_true",
-        help="Run in quiet mode (no output)"
+        "-l", "--listener",
+        type = parse_listener,
+        nargs = '*',
+        default = [],
+        help = "List of listeners in the format 'tor_port,listen_port'."
+    )
+    parser.add_argument(
+        "-d", "--hidden-service-dirs",
+        type = str,
+        nargs = '*',
+        help = "Directories for storing hidden service keys and hostname files."
+    )
+    parser.add_argument(
+        "-b", "--bridges",
+        type = str,
+        nargs = '*',
+        help = "List of bridges to use for connecting to the Tor network."
+    )
+    parser.add_argument(
+        "-t", "--default-bridge-type",
+        type = str,
+        default = None,
+        help = "Default bridge type to use when connecting to Tor."
+    )
+    parser.add_argument(
+        "-q", "--bridge-quantity",
+        type = int,
+        default = None,
+        help = "Number of bridges to use for connecting to the Tor network."
+    )
+    parser.add_argument(
+        "-s", "--socks-port",
+        type = int,
+        default = None,
+        help = "SOCKS port for Tor connections."
+    )
+    parser.add_argument(
+        "--delete",
+        action = "store_true",
+        help = "Delete all data associated with the hidden service."
+    )
+    parser.add_argument(
+        "--quiet",
+        action = "store_true",
+        help = "Run the script in quiet mode with no output."
     )
 
     args = parser.parse_args()
+    listener = []
+
+    port = args.port
+    if port is not None:
+        listener.append((80, port))
+
+    listener_arg = args.listener
+    if isinstance(listener_arg, list):
+        flat_listener = list(chain.from_iterable(listener_arg))
+        listener.extend(flat_listener)
+
+    socks_port = None
+    arg_socks_port = args.socks_port
+    if isinstance(arg_socks_port, int):
+        socks_port = arg_socks_port
 
     tor_runner = TorRunner(
         hs_dirs=args.hidden_service_dirs, bridges=args.bridges,
         default_bridge_type=args.default_bridge_type,
         bridge_quantity=args.bridge_quantity
     )
-    tor_runner.run([(80, args.port)], args.quiet)
+    tor_runner.run(listener, socks_port, args.quiet)
 
 
 if __name__ == "__main__":

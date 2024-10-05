@@ -13,21 +13,25 @@ tor_runner --help
 
 Output:
 ```
-usage: tor_runner [-h] [-p PORT] [-s [HIDDEN_SERVICE_DIRS ...]] [-b [BRIDGES ...]] [-d DEFAULT_BRIDGE_TYPE] [-q BRIDGE_QUANTITY] [--quiet]
+usage: tor_runner [-h] [-p PORT] [-l [LISTENER ...]] [-d [HIDDEN_SERVICE_DIRS ...]] [-b [BRIDGES ...]] [-t DEFAULT_BRIDGE_TYPE] [-q BRIDGE_QUANTITY] [-s SOCKS_PORT] [--quiet]
 
 Run as Tor hidden service
 
 options:
   -h, --help            show this help message and exit
-  -p PORT, --port PORT  Port to listen
-  -s [HIDDEN_SERVICE_DIRS ...], --hidden-service-dirs [HIDDEN_SERVICE_DIRS ...]
+  -p PORT, --port PORT  HTTP Port to listen
+  -l [LISTENER ...], --listener [LISTENER ...]
+                        List of listeners in the format 'tor_port,listen_port'
+  -d [HIDDEN_SERVICE_DIRS ...], --hidden-service-dirs [HIDDEN_SERVICE_DIRS ...]
                         List of hidden service directories
   -b [BRIDGES ...], --bridges [BRIDGES ...]
                         List of bridges for Tor
-  -d DEFAULT_BRIDGE_TYPE, --default-bridge-type DEFAULT_BRIDGE_TYPE
+  -t DEFAULT_BRIDGE_TYPE, --default-bridge-type DEFAULT_BRIDGE_TYPE
                         Default bridge type
   -q BRIDGE_QUANTITY, --bridge-quantity BRIDGE_QUANTITY
                         How many bridges to use
+  -s SOCKS_PORT, --socks-port SOCKS_PORT
+                        The socks port for tor.
   --quiet               Run in quiet mode (no output)
 ```
 
@@ -45,7 +49,7 @@ runner = TorRunner(
 
 if __name__ == '__main__':
     # Forwards 80 -> 5000 and 22 -> 22
-    runner.run([(80, 5000), (22, 22)], quite = False, wait = True)
+    runner.run([(80, 5000), (22, 22)], socks_port = 9050, quite = False, wait = True)
 ```
 
 ---

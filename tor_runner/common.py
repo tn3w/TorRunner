@@ -63,11 +63,14 @@ CURRENT_DIRECTORY_PATH = os.path.dirname(os.path.abspath(__file__))
 # Create the file test.env in the `src/tor_runner` folder if you do
 # not want to install the module with pip but want to import it from this
 # folder, e.g. to display code changes directly.
+pkg_resources_available = False
 if not os.path.exists(os.path.join(CURRENT_DIRECTORY_PATH, 'test.env')):
     try:
         import pkg_resources
-    except Exception:
+    except ImportError:
         pass
+    else:
+        pkg_resources_available = True
 
 def get_work_dir() -> str:
     """
@@ -80,12 +83,15 @@ def get_work_dir() -> str:
     if os.path.exists(os.path.join(CURRENT_DIRECTORY_PATH, '.test')):
         return CURRENT_DIRECTORY_PATH
 
-    try:
-        file_path = pkg_resources.resource_filename('tor_runner', '')
-    except Exception:
+    if not pkg_resources_available:
         return CURRENT_DIRECTORY_PATH
 
-    if not isinstance(file_path, str):
+    try:
+        file_path = pkg_resources.resource_filename('tor_runner', '')
+    except (pkg_resources.DistributionNotFound, pkg_resources.UnknownExtra):
+        return CURRENT_DIRECTORY_PATH
+
+    if not os.path.exists(file_path):
         return CURRENT_DIRECTORY_PATH
 
     return file_path
@@ -295,20 +301,22 @@ class Progress:
         self.last_remaining_time = None
 
 
-    def update(self, finished: int) -> None:
+    def update(self, finished: Optional[int] = None) -> None:
         """
         Updates the progress with the number of finished tasks.
 
         Args:
-            finished (int): The number of tasks that have been completed.
+            finished (Optional[int]): The number of tasks that have been completed.
 
         Returns:
             None: This method does not return a value.
         """
-        if finished <= self.finished:
-            return
 
-        self.finished = finished
+        if finished is not None:
+            if finished <= self.finished:
+                return
+
+            self.finished = finished
 
         is_finished = False
         if self.finished >= self.total:
