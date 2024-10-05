@@ -150,9 +150,9 @@ def get_bridge_type(bridge_string: str) -> str:
 
     match = re.match(pattern, bridge_string)
     if match:
-        bridge_type = match.group(1).strip()
+        bridge_type = match.group(1)
         if bridge_type:
-            return bridge_type
+            return bridge_type.strip()
 
     for bridge_type in ["obfs4", "snowflake", "webtunnel", "meek_lite"]:
         if bridge_type.lower() in bridge_string.lower():
