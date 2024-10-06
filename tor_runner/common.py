@@ -423,9 +423,6 @@ def read(file_path: str, as_bytes: bool = False, default: Any = None) -> Any:
         Any: The contents of the file, or the default value if the file does not exist.
     """
 
-    if not can_read(file_path):
-        return default
-
     try:
         with open(file_path, "r" + ("b" if as_bytes else ""),
                   encoding = None if as_bytes else "utf-8") as file:
@@ -450,9 +447,6 @@ def write(file_path: str, content: Any) -> bool:
     Returns:
         bool: True if the file was written successfully, False otherwise.
     """
-
-    if not can_write(file_path, len(content)):
-        return False
 
     try:
         with open(file_path, "w" + ("b" if isinstance(content, bytes) else "")) as file:
