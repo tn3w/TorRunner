@@ -58,7 +58,7 @@ def get_system_information() -> Tuple[Optional[str], Optional[str]]:
     return operating_system, architecture
 
 
-CURRENT_DIRECTORY_PATH = os.path.dirname(os.path.abspath(__file__))
+CURRENT_DIRECTORY_PATH: Final[str] = os.path.dirname(os.path.abspath(__file__))
 
 # Create the file test.env in the `src/tor_runner` folder if you do
 # not want to install the module with pip but want to import it from this
@@ -237,34 +237,46 @@ REQUEST_HEADERS: Final[Dict[str, str]] = {
                    " (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.3")
 }
 
+CHARACTER_SETS: Final[list] = [
+    "0123456789",
+    "abcdefghijklmnopqrstuvwxyz",
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+    "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"
+]
 
-CHARACTER_CATEGORIES: Final[dict] = {
-    "a-z": "abcdefghijklmnopqrstuvwxyz",
-    "A-Z": "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
-    "0-9": "0123456789",
-    "%": "!\'#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"
-}
 
-
-def generate_secure_random_string(length: int, characters: str = "a-zA-Z0-9%"):
+def generate_secure_random_string(length: int, characters: str = "aA0"):
     """
-    Generate a random string of a specified length using a set of characters.
+    Generate a secure random string of a specified length using defined character sets.
 
     Parameters:
-        length (int): The length of the string to be generated.
-        characters (str): A string specifying the character sets to include in the generated string. 
+        length (int): The length of the random string to generate.
+        characters (str): A string specifying which character sets to include.
 
     Returns:
-        str: A randomly generated string of the specified length
-            composed of the selected characters.
+        str: A secure randomly generated string of the specified length, composed 
+             of characters from the selected sets.
     """
 
-    full_characters = ""
-    for category, mapping in CHARACTER_CATEGORIES.items():
-        if category in characters:
-            full_characters += mapping
+    full_characters = set()
+    for character_set in CHARACTER_SETS:
+        if any(character in character_set for character in characters):
+            full_characters.add(character_set)
+
+    full_characters = ''.join(full_characters)
 
     return "".join(secrets.choice(full_characters) for _ in range(length))
+
+
+def clear_console() -> None:
+    """
+    Clear the console screen.
+
+    Returns:
+        None: This function does not return any value.
+    """
+
+    os.system('cls' if os.name == 'nt' else 'clear')
 
 
 class Progress:
@@ -353,7 +365,7 @@ class Progress:
         if is_finished:
             status += 'Done\n'
 
-        os.system('cls' if os.name == 'nt' else 'clear')
+        clear_console()
 
         if os.name == 'nt':
             sys.stdout.write('\r' + status + ' ' * 8)

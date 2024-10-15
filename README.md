@@ -4,6 +4,14 @@
 
 <br>
 
+## 📌 Planned for the future
+- Vanguards
+- Auto Bridge Updates
+- Multi Threads
+- Tor preinstalled
+- Tor version check & auto update
+- Proxy mode
+
 ## Examples
 
 ### On the command line
@@ -13,26 +21,32 @@ tor_runner --help
 
 Output:
 ```
-usage: tor_runner [-h] [-p PORT] [-l [LISTENER ...]] [-d [HIDDEN_SERVICE_DIRS ...]] [-b [BRIDGES ...]] [-t DEFAULT_BRIDGE_TYPE] [-q BRIDGE_QUANTITY] [-s SOCKS_PORT] [--quiet]
+usage: tor_runner [-h] [-p PORT] [-l [LISTENER ...]] [-t THREADS] [-d [HIDDEN_SERVICE_DIRS ...]] [-b [BRIDGES ...]] [-s SOCKS_PORT] [-v [VANGUARDS]] [--bridge-quantity BRIDGE_QUANTITY]
+                  [--default-bridge-type DEFAULT_BRIDGE_TYPE] [--delete] [--quiet]
 
-Run as Tor hidden service
+Run as a Tor hidden service, allowing configuration of listeners, hidden service directories, and bridges.
 
 options:
   -h, --help            show this help message and exit
-  -p PORT, --port PORT  HTTP Port to listen
+  -p PORT, --port PORT  HTTP port for the hidden service to listen on.
   -l [LISTENER ...], --listener [LISTENER ...]
-                        List of listeners in the format 'tor_port,listen_port'
+                        List of listeners in the format 'tor_port,listen_port'.
+  -t THREADS, --threads THREADS
+                        How many times Tor should start. (default: 1)
   -d [HIDDEN_SERVICE_DIRS ...], --hidden-service-dirs [HIDDEN_SERVICE_DIRS ...]
-                        List of hidden service directories
+                        Directories for storing hidden service keys and hostname files.
   -b [BRIDGES ...], --bridges [BRIDGES ...]
-                        List of bridges for Tor
-  -t DEFAULT_BRIDGE_TYPE, --default-bridge-type DEFAULT_BRIDGE_TYPE
-                        Default bridge type
-  -q BRIDGE_QUANTITY, --bridge-quantity BRIDGE_QUANTITY
-                        How many bridges to use
+                        List of bridges to use for connecting to the Tor network.
   -s SOCKS_PORT, --socks-port SOCKS_PORT
-                        The socks port for tor.
-  --quiet               Run in quiet mode (no output)
+                        SOCKS port for Tor connections.
+  -v [VANGUARDS], --vanguards [VANGUARDS]
+                        Enables Vanguards with an optional thread count to protect against guard discovery and related traffic analysis attacks.
+  --bridge-quantity BRIDGE_QUANTITY
+                        Number of bridges to use for connecting to the Tor network.
+  --default-bridge-type DEFAULT_BRIDGE_TYPE
+                        Default bridge type to use when connecting to Tor.
+  --delete              Delete all data associated with tor_runner.
+  --quiet               Run the script in quiet mode with no output.
 ```
 
 ---

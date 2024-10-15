@@ -14,24 +14,42 @@ Made available under the GPL-3.0 license.
 import re
 import os
 import sys
-import time
 import atexit
+import select
+import hashlib
+import secrets
 import argparse
+import binascii
 import subprocess
 from itertools import chain
 from sys import argv as ARGUMENTS
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, Union, List, Any
 
-from tor_runner.common import (
-    TOR_DIRECTORY_PATH, IMPORTANT_FILE_KEYS, TOR_FILE_PATHS,
-    OPERATING_SYSTEM, ARCHITECTURE, ERROR_MESSAGE, TOR_ARCHIVE_FILE_PATH,
-    DEBUG_DIRECTORY_PATH, PLUGGABLE_TRANSPORTS_DIRECTORY_PATH,
-    DEFAULT_BRIDGES, DATA_DIRECTORY_PATH, PLUGGABLE_TRANSPORTS,
-    CURRENT_DIRECTORY_PATH, HIDDEN_SERVICE_DIRECTORY_PATH, Progress,
-    request_url, extract_links, download_file, extract_tar, delete,
-    find_available_port, find_hostnames, configuration_to_str,
-    generate_secure_random_string, write
-)
+try:
+    from .common import (
+        TOR_DIRECTORY_PATH, IMPORTANT_FILE_KEYS, TOR_FILE_PATHS,
+        OPERATING_SYSTEM, ARCHITECTURE, ERROR_MESSAGE, TOR_ARCHIVE_FILE_PATH,
+        DEBUG_DIRECTORY_PATH, PLUGGABLE_TRANSPORTS_DIRECTORY_PATH,
+        DEFAULT_BRIDGES, DATA_DIRECTORY_PATH, PLUGGABLE_TRANSPORTS,
+        CURRENT_DIRECTORY_PATH, HIDDEN_SERVICE_DIRECTORY_PATH, Progress,
+        request_url, extract_links, download_file, extract_tar,
+        delete, find_available_port, find_hostnames, configuration_to_str,
+        generate_secure_random_string, write
+    )
+except ImportError:
+    from common import (
+        TOR_DIRECTORY_PATH, IMPORTANT_FILE_KEYS, TOR_FILE_PATHS,
+        OPERATING_SYSTEM, ARCHITECTURE, ERROR_MESSAGE, TOR_ARCHIVE_FILE_PATH,
+        DEBUG_DIRECTORY_PATH, PLUGGABLE_TRANSPORTS_DIRECTORY_PATH,
+        DEFAULT_BRIDGES, DATA_DIRECTORY_PATH, PLUGGABLE_TRANSPORTS,
+        CURRENT_DIRECTORY_PATH, HIDDEN_SERVICE_DIRECTORY_PATH, Progress,
+        request_url, extract_links, download_file, extract_tar,
+        delete, find_available_port, find_hostnames, configuration_to_str,
+        generate_secure_random_string, write
+    )
+
+
+TOR_TIMEOUT = 60 # Seconds
 
 
 def parse_listener(listener_str: str) -> List[Tuple[int, int]]:
@@ -64,6 +82,27 @@ def parse_listener(listener_str: str) -> List[Tuple[int, int]]:
     return []
 
 
+def parse_vanguards(value: Any) -> int:
+    """
+    Parses a value into an integer.
+
+    Args:
+        value (Any): The value to be parsed into an integer. This can be of any type, including
+                     strings, numbers, or other data types.
+
+    Returns:
+        int: The parsed integer value. If the input value cannot be converted to an integer,
+             returns 0.
+    """
+
+    try:
+        return int(value)
+    except ValueError:
+        pass
+
+    return 0
+
+
 def verify_tor_installation() -> bool:
     """
     Verifies the installation of all required Tor files.
@@ -81,6 +120,45 @@ def verify_tor_installation() -> bool:
             return False
 
     return True
+
+
+def hash_tor_password(password: str) -> str:
+    """
+    Hash a password for use with Tor`s control port authentication.
+
+    Args:
+        password (str): The password to be hashed.
+
+    Returns:
+        str: The hashed password in a format suitable for Tor.
+    """
+
+    indicator_char = "`"
+    salt = secrets.token_bytes(8) + indicator_char.encode("utf-8")
+    indicator_value = ord(indicator_char)
+
+    expected_bias = 6
+    count = (16 + (indicator_value & 15)) << ((indicator_value >> 4) + expected_bias)
+
+    sha1_hash = hashlib.sha1()
+    salted_password = salt[:8] + password.encode("utf-8")
+    password_length = len(salted_password)
+
+    while count > 0:
+        if count <= password_length:
+            sha1_hash.update(salted_password[:count])
+            break
+
+        sha1_hash.update(salted_password)
+        count -= password_length
+
+    hashed_password = sha1_hash.digest()
+
+    salt_hex = binascii.b2a_hex(salt[:8]).upper().decode("utf-8")
+    indicator_hex = binascii.b2a_hex(indicator_char.encode("utf-8")).upper().decode("utf-8")
+    hashed_password_hex = binascii.b2a_hex(hashed_password).upper().decode("utf-8")
+
+    return "16:" + salt_hex + indicator_hex + hashed_password_hex
 
 
 def install_tor() -> None:
@@ -195,7 +273,7 @@ def create_tor_data() -> str:
         str: The path to the newly created Tor data directory.
     """
 
-    random_name = generate_secure_random_string(8, "a-zA-Z0-9")
+    random_name = generate_secure_random_string(8)
     tor_data_directory_path = os.path.join(DATA_DIRECTORY_PATH, f"{random_name}.data")
 
     if not os.path.exists(tor_data_directory_path):
@@ -204,7 +282,7 @@ def create_tor_data() -> str:
     return tor_data_directory_path
 
 
-def create_temp_torrc(content):
+def create_temp_torrc(content: str) -> str:
     """
     Creates a temporary Tor configuration file with a randomly generated name.
 
@@ -215,14 +293,15 @@ def create_temp_torrc(content):
         str: The path to the newly created Tor configuration file.
     """
 
-    random_name = generate_secure_random_string(8, "a-zA-Z0-9")
+    random_name = generate_secure_random_string(8)
     torrc_path = os.path.join(DATA_DIRECTORY_PATH, f"{random_name}.torrc")
 
     write(torrc_path, content)
     return torrc_path
 
 
-def get_configuration(control_port: int, hidden_service_directories: list, listeners: list,
+def get_configuration(control_port: int, tor_password: str,
+                      hidden_service_directories: list, listeners: list,
                       tor_data_directory_path: str, bridges: Optional[list] = None,
                       default_bridge_type: Optional[str] = None,
                       bridge_quantity: Optional[int] = None,
@@ -232,7 +311,11 @@ def get_configuration(control_port: int, hidden_service_directories: list, liste
 
     Parameters:
         control_port (int): The port number for the Tor control interface.
+        tor_password (str): The password to authenticate the Tor control interface.
         hidden_service_directories (list): A list of directories for hidden services.
+        listeners (list): A list of tuples specifying the port mappings for hidden services.
+                          Each tuple should contain (to_port, from_port).
+        tor_data_directory_path (str): The file path to the Tor client's data directory.
         bridges (list): A list of bridges to be used by the Tor client.
         default_bridge_type (Optional[str]): The type of default bridge to
             use if no bridges are provided.
@@ -251,13 +334,15 @@ def get_configuration(control_port: int, hidden_service_directories: list, liste
         quantity = max(0, quantity - len(bridges))
         bridges.extend(get_default_bridges(default_bridge_type, quantity))
 
+    hashed_tor_password = hash_tor_password(tor_password)
+
     configuration = [
         ("GeoIPFile", TOR_FILE_PATHS["geoip4"]),
         ("GeoIPv6File", TOR_FILE_PATHS["geoip6"]),
         ("DataDirectory", tor_data_directory_path),
         ("ControlPort", control_port),
-        ("CookieAuthentication", 1),
-        ("CookieAuthFile", os.path.join(tor_data_directory_path, "cookie.txt")),
+        ("CookieAuthentication", 0),
+        ("HashedControlPassword", hashed_tor_password),
         ("Log", "notice stdout"),
         ("ClientUseIPv6", 1),
         ("ClientPreferIPv6ORPort", 1),
@@ -274,13 +359,16 @@ def get_configuration(control_port: int, hidden_service_directories: list, liste
     for pluggable_transport, bridge_types in PLUGGABLE_TRANSPORTS.items():
         for bridge_type in bridge_types:
             if bridge_type in required_pts:
-                configuration.append(
-                    ("ClientTransportPlugin", ','.join(bridge_types) + " exec " +
-                    TOR_FILE_PATHS.get(pluggable_transport) +
-                    ("-registerURL https://registration.refraction.network/api"
-                    if pluggable_transport == "conjure" else ""))
-                )
+                transport = ','.join(bridge_types) + " exec " +\
+                    TOR_FILE_PATHS.get(pluggable_transport)
 
+                if pluggable_transport == "conjure":
+                    transport += (
+                        " -registerURL "
+                        "https://registration.refraction.network/api"
+                    )
+
+                configuration.append(("ClientTransportPlugin", transport))
                 break
 
     for bridge in bridges:
@@ -320,6 +408,44 @@ def get_percentage(output: str) -> Optional[int]:
     return None
 
 
+class TorProcess:
+    """
+    A class to manage a Tor process.
+
+    This class encapsulates the functionality required to start and control a Tor process,
+    including handling the control port, authentication, and configuration settings.
+    """
+
+
+    def __init__(self, tor_process: subprocess.Popen, control_port: str, password: str,
+                 data_directory_path: str, torrc_file_path: str,
+                 socks_port: Optional[int] = None) -> None:
+        """
+        Initializes a tor process data structure.
+
+        Args:
+            tor_process (subprocess.Popen): The subprocess instance representing
+                the running Tor process.
+            control_port (str): The port used for controlling the Tor
+                process via the control protocol.
+            password (str): The password for authenticating with the Tor control port.
+            data_directory_path (str): The file path to the directory where Tor stores its data.
+            torrc_file_path (str): The file path to the Tor configuration file (torrc).
+            socks_port (Optional[int]): The port used for SOCKS connections.
+                If not specified, defaults to None.
+
+        Returns:
+            None: none
+        """
+
+        self.tor_process = tor_process
+        self.control_port = control_port
+        self.password = password
+        self.data_directory_path = data_directory_path
+        self.torrc_file_path = torrc_file_path
+        self.socks_port = socks_port
+
+
 class TorRunner:
     """
     TorRunner is a class that runs Tor based on the operating system and architecture.
@@ -335,8 +461,8 @@ class TorRunner:
             Tuple[int, int]: A tuple containing the available control port and SOCKS port.
         """
 
-        control_port = find_available_port(9051, 10000)
-        socks_port = find_available_port(9000, 10000, [control_port])
+        control_port = find_available_port(9051, 65536)
+        socks_port = find_available_port(9000, 65536, [control_port])
 
         return control_port, socks_port
 
@@ -359,9 +485,8 @@ class TorRunner:
             None
         """
 
-        hs_dirs = hs_dirs or []
-        self.tor_data_directory_path = create_tor_data()
-        self.torrc_file_path = None
+        if not isinstance(hs_dirs, list):
+            hs_dirs = []
 
         hidden_directories = []
         for hs_dir in hs_dirs:
@@ -370,15 +495,19 @@ class TorRunner:
 
             hidden_directories.append(hs_dir)
 
-        self.bridges = bridges or []
+        self.hs_dirs = hidden_directories
+
+        if not isinstance(bridges, list):
+            bridges = []
+
+        self.bridges = bridges
+        self.tor_processes: List[TorProcess] = []
+
         self.default_bridge_type = default_bridge_type
         self.bridge_quantity = bridge_quantity
-        self.hs_dirs = hidden_directories
 
         if not verify_tor_installation():
             install_tor()
-
-        self.tor_process = None
 
 
     @property
@@ -404,14 +533,15 @@ class TorRunner:
             None
         """
 
-        try:
-            self.tor_process.terminate()
-        finally:
-            delete(self.tor_data_directory_path)
-            delete(self.torrc_file_path)
+        for tor_process_data in self.tor_processes:
+            try:
+                tor_process_data.tor_process.terminate()
+            finally:
+                delete(tor_process_data.data_directory_path)
+                delete(tor_process_data.torrc_file_path)
 
 
-    def run(self, listeners: list, socks_port: Optional[int] = None,
+    def run(self, listeners: list, socks_port: Optional[Union[int, bool]] = None,
             quite: bool = False, wait: bool = True) -> None:
         """
         Runs the Tor process with the specified listeners and configuration.
@@ -437,17 +567,25 @@ class TorRunner:
             hidden_service_directories = self.hs_dirs\
                 if len(self.hs_dirs) > 0 else [HIDDEN_SERVICE_DIRECTORY_PATH]
 
-        control_port, _ = self.get_ports()
+        tor_password = generate_secure_random_string(32)
+        tor_data_directory_path = create_tor_data()
+
+        free_control_port, free_socks_port = self.get_ports()
+        if isinstance(socks_port, bool):
+            socks_port = None
+
+            if socks_port is True:
+                socks_port = free_socks_port
+
         config = get_configuration(
-            control_port, hidden_service_directories, listeners,
-            self.tor_data_directory_path, self.bridges,
+            free_control_port, tor_password, hidden_service_directories,
+            listeners, tor_data_directory_path, self.bridges,
             self.default_bridge_type, self.bridge_quantity,
             socks_port
         )
 
         config_string = configuration_to_str(config)
         torrc_file_path = create_temp_torrc(config_string)
-        self.torrc_file_path = torrc_file_path
 
         atexit.register(self.exit)
 
@@ -461,21 +599,30 @@ class TorRunner:
                 new_ld_library_path = f'{current_ld_library_path}:{path_to_extend}'\
                     if current_ld_library_path else path_to_extend
 
-            os.environ['LD_LIBRARY_PATH'] = new_ld_library_path
+                os.environ['LD_LIBRARY_PATH'] = new_ld_library_path
 
         tor_process = subprocess.Popen(
             commands, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, text=True
         )
 
-        self.tor_process = tor_process
+        tor_process_data = TorProcess(
+            tor_process, free_control_port, tor_password,
+            tor_data_directory_path, torrc_file_path, socks_port
+        )
+
+        self.tor_processes.append(tor_process_data)
 
         progress = None
         if not quite:
             progress = Progress("Tor establishes a secure connection...", 100)
 
         stdout = ""
-        while True:
+        for _ in range(TOR_TIMEOUT * 10):
+            ready, _, _ = select.select([tor_process.stdout], [], [], 0.1)
+            if not ready:
+                continue
+
             output = tor_process.stdout.readline()
             stdout += output
 
@@ -496,21 +643,29 @@ class TorRunner:
                 if percentage == 100:
                     os.remove(torrc_file_path)
                     break
+        else:
+            if not quite:
+                print("\n\n[Error] Timeout occurred while starting Tor.")
 
-                time.sleep(0.1)
+            self.exit()
+            return
 
         return_code = tor_process.returncode
         if isinstance(return_code, int):
             if return_code > 0:
                 if not quite:
-                    print("Error occurred while starting Tor: (Code", str(return_code) + ")")
+                    print("\n[Error] Error occurred while starting",
+                          "Tor: (Code", str(return_code) + ")")
                     print(stdout)
 
-                sys.exit(return_code)
+                self.exit()
+                return
 
         if wait:
             if not quite and len(hidden_service_directories) > 0:
-                print("Running on", ", ".join(find_hostnames(hidden_service_directories)), end = "")
+                joined_hostnames = ", ".join(find_hostnames(hidden_service_directories))
+                print("Running on", joined_hostnames, end = "")
+
             tor_process.wait()
 
 
@@ -595,6 +750,12 @@ def main() -> None:
         help = "List of listeners in the format 'tor_port,listen_port'."
     )
     parser.add_argument(
+        "-t", "--threads",
+        type = int,
+        default = 1,
+        help = "How many times Tor should start. (default: 1)"
+    )
+    parser.add_argument(
         "-d", "--hidden-service-dirs",
         type = str,
         nargs = '*',
@@ -607,27 +768,36 @@ def main() -> None:
         help = "List of bridges to use for connecting to the Tor network."
     )
     parser.add_argument(
-        "-t", "--default-bridge-type",
-        type = str,
-        default = None,
-        help = "Default bridge type to use when connecting to Tor."
-    )
-    parser.add_argument(
-        "-q", "--bridge-quantity",
-        type = int,
-        default = None,
-        help = "Number of bridges to use for connecting to the Tor network."
-    )
-    parser.add_argument(
         "-s", "--socks-port",
         type = int,
         default = None,
         help = "SOCKS port for Tor connections."
     )
     parser.add_argument(
+        "-v", "--vanguards",
+        nargs = '?',
+        const = 1,
+        default = 0,
+        type = parse_vanguards,
+        help = ("Enables Vanguards with an optional thread count to protect"
+                " against guard discovery and related traffic analysis attacks.")
+    )
+    parser.add_argument(
+        "--bridge-quantity",
+        type = int,
+        default = None,
+        help = "Number of bridges to use for connecting to the Tor network."
+    )
+    parser.add_argument(
+        "--default-bridge-type",
+        type = str,
+        default = None,
+        help = "Default bridge type to use when connecting to Tor."
+    )
+    parser.add_argument(
         "--delete",
         action = "store_true",
-        help = "Delete all data associated with the hidden service."
+        help = "Delete all data associated with tor_runner."
     )
     parser.add_argument(
         "--quiet",
@@ -638,26 +808,30 @@ def main() -> None:
     args = parser.parse_args()
     listener = []
 
-    port = args.port
+    port = getattr(args, "port", None)
     if port is not None:
         listener.append((80, port))
 
-    listener_arg = args.listener
+    listener_arg = getattr(args, "listener", None)
     if isinstance(listener_arg, list):
         flat_listener = list(chain.from_iterable(listener_arg))
         listener.extend(flat_listener)
 
     socks_port = None
-    arg_socks_port = args.socks_port
+    arg_socks_port = getattr(args, "socks_port", None)
     if isinstance(arg_socks_port, int):
+        if arg_socks_port == 1:
+            arg_socks_port = True
+
         socks_port = arg_socks_port
 
     tor_runner = TorRunner(
-        hs_dirs=args.hidden_service_dirs, bridges=args.bridges,
-        default_bridge_type=args.default_bridge_type,
-        bridge_quantity=args.bridge_quantity
+        hs_dirs = getattr(args, "hidden_service_dirs", None),
+        bridges = getattr(args, "bridges", None),
+        default_bridge_type = getattr(args, "default_bridge_type", None),
+        bridge_quantity = getattr(args, "bridge_quantity", None)
     )
-    tor_runner.run(listener, socks_port, args.quiet)
+    tor_runner.run(listener, socks_port, getattr(args, "quiet", False))
 
 
 if __name__ == "__main__":
