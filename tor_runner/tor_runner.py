@@ -237,6 +237,9 @@ def install_tor(download_url: str) -> Optional[str]:
     delete(TOR_ARCHIVE_FILE_PATH)
     delete(DEBUG_DIRECTORY_PATH)
 
+    if os.name == "nt":
+        delete(os.path.join(TOR_DIRECTORY_PATH, "tor", "tor-gencert.exe"))
+
     for file in os.listdir(PLUGGABLE_TRANSPORTS_DIRECTORY_PATH):
         if not file.strip().lower().startswith(("readme", "pt_config")):
             continue
