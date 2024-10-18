@@ -195,7 +195,7 @@ def get_tor_download_url(operating_system: str, architecture: str) -> Optional[s
         with urllib.request.urlopen(req, timeout = 3) as response:
             html = ""
             while True:
-                chunk = response.read(512).decode("utf-8", errors = "ignore")
+                chunk = response.read(128).decode("utf-8", errors = "ignore")
                 if not chunk:
                     break
 
@@ -391,6 +391,9 @@ def get_configuration(control_port: int, tor_password: str,
         ("HashedControlPassword", hashed_tor_password),
         ("Log", "notice stdout"),
         ("ClientUseIPv6", 1),
+        ("AvoidDiskWrites", 1),
+        ("ClientOnly", 1),
+        ("ControlPortWriteToFile", 0),
         ("ClientPreferIPv6ORPort", 1),
         ("UseBridges", 1 if len(bridges) > 0 else 0)
     ]
