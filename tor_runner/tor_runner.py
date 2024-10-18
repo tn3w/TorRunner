@@ -7,13 +7,14 @@ installations, downloading and extracting the necessary files, managing pluggabl
 transports, and setting up bridges. The module also facilitates running web applications
 like Flask and Sanic on the Tor network, allowing for hidden services and secure connections.
 
-License:
-Made available under the GPL-3.0 license.
+License: Made available under the GPL-3.0 license.
+Source: https://github.com/tn3w/TorRunner
 """
 
 import re
 import os
 import sys
+import socket
 import atexit
 import select
 import hashlib
@@ -21,6 +22,9 @@ import secrets
 import argparse
 import binascii
 import subprocess
+import http.client
+import urllib.error
+import urllib.request
 from itertools import chain
 from sys import argv as ARGUMENTS
 from typing import Optional, Tuple, Union, List, Any
@@ -32,9 +36,8 @@ try:
         DEBUG_DIRECTORY_PATH, PLUGGABLE_TRANSPORTS_DIRECTORY_PATH,
         DEFAULT_BRIDGES, DATA_DIRECTORY_PATH, PLUGGABLE_TRANSPORTS,
         CURRENT_DIRECTORY_PATH, HIDDEN_SERVICE_DIRECTORY_PATH, Progress,
-        request_url, extract_links, download_file, extract_tar,
-        delete, find_available_port, find_hostnames, configuration_to_str,
-        generate_secure_random_string, write
+        extract_links, download_file, extract_tar, delete, find_available_port,
+        find_hostnames, configuration_to_str, generate_secure_random_string, write
     )
 except ImportError:
     from common import (
@@ -43,9 +46,8 @@ except ImportError:
         DEBUG_DIRECTORY_PATH, PLUGGABLE_TRANSPORTS_DIRECTORY_PATH,
         DEFAULT_BRIDGES, DATA_DIRECTORY_PATH, PLUGGABLE_TRANSPORTS,
         CURRENT_DIRECTORY_PATH, HIDDEN_SERVICE_DIRECTORY_PATH, Progress,
-        request_url, extract_links, download_file, extract_tar,
-        delete, find_available_port, find_hostnames, configuration_to_str,
-        generate_secure_random_string, write
+        extract_links, download_file, extract_tar, delete, find_available_port,
+        find_hostnames, configuration_to_str, generate_secure_random_string, write
     )
 
 
@@ -161,36 +163,74 @@ def hash_tor_password(password: str) -> str:
     return "16:" + salt_hex + indicator_hex + hashed_password_hex
 
 
-def install_tor() -> None:
+def get_tor_download_url(operating_system: str, architecture: str) -> Optional[str]:
     """
-    Installs Tor based on the operating system and architecture.
+    Retrieves the download URL for the Tor Expert Bundle based on the operating system
+    and system architecture provided.
+
+    Args:
+        operating_system (str): The operating system for which the Tor
+            package is required (e.g., 'windows', 'linux', 'mac').
+        architecture (str): The architecture of the system (e.g., 'x86_64', 'i686').
 
     Returns:
-        Nothing (None): Nothing is returned.
+        Optional[str]: The download URL for the matching
+            Tor Expert Bundle, or None if no matching URL is found.
     """
 
-    url = 'https://www.torproject.org/download/tor/'
+    def matches(url: str) -> bool:
+        return "archive.torproject.org/tor-package-archive/torbrowser" in url \
+                and operating_system.lower() in url and "tor-expert-bundle" in url \
+                    and architecture.lower() in url and not url.endswith(".asc")
 
-    download_url = None
-    content = request_url(url, return_as_bytes = False)
+    download_page_url = "https://www.torproject.org/download/tor/"
 
-    if content is not None:
-        anchors = extract_links(content)
+    req = urllib.request.Request(
+        download_page_url, headers = {"Range": "bytes=0-", "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            " (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.3"
+        }
+    )
+    try:
+        with urllib.request.urlopen(req, timeout = 3) as response:
+            html = ""
+            while True:
+                chunk = response.read(512).decode("utf-8", errors = "ignore")
+                if not chunk:
+                    break
 
-        for anchor in anchors:
-            if "archive.torproject.org/tor-package-archive/torbrowser" in anchor\
-                and OPERATING_SYSTEM.lower() in anchor and "tor-expert-bundle" in anchor\
-                    and ARCHITECTURE.lower() in anchor and not anchor.endswith(".asc"):
+                html += chunk
 
-                download_url = anchor
-                break
+                urls = extract_links(html)
+                for url in urls:
+                    if matches(url):
+                        return url
 
-    if download_url is None:
-        raise OSError("Tor download URL not found. " + ERROR_MESSAGE)
+    except (urllib.error.HTTPError, urllib.error.URLError, socket.timeout,
+            FileNotFoundError, PermissionError, http.client.RemoteDisconnected,
+            UnicodeEncodeError, TimeoutError, http.client.IncompleteRead,
+            http.client.HTTPException, ConnectionResetError, ConnectionAbortedError,
+            ConnectionRefusedError, ConnectionError):
+        pass
+
+    return None
+
+
+def install_tor(download_url: str) -> Optional[str]:
+    """
+    Downloads and installs the Tor Expert Bundle from the provided URL.
+
+    Args:
+        download_url (str): The URL to download the Tor package from.
+
+    Returns:
+        None: This function installs the Tor package to the appropriate directory,
+            removing temporary files and ensuring the installation is verified.
+    """
 
     is_downloaded = download_file(download_url, TOR_ARCHIVE_FILE_PATH)
     if not is_downloaded:
-        raise OSError("Tor download failed. " + ERROR_MESSAGE)
+        return "Tor download failed."
 
     extracted_successfully = extract_tar(TOR_ARCHIVE_FILE_PATH, TOR_DIRECTORY_PATH)
 
@@ -205,11 +245,13 @@ def install_tor() -> None:
         delete(full_path)
 
     if not extracted_successfully:
-        raise OSError("Tor could not be extracted successfully. " + ERROR_MESSAGE)
+        return "Tor could not be extracted successfully."
 
     valid_installation = verify_tor_installation()
     if not valid_installation:
-        raise OSError("An error occured while installing Tor. " + ERROR_MESSAGE)
+        return "An error occured while installing Tor."
+
+    return None
 
 
 def get_bridge_type(bridge_string: str) -> str:
@@ -341,6 +383,7 @@ def get_configuration(control_port: int, tor_password: str,
         ("GeoIPv6File", TOR_FILE_PATHS["geoip6"]),
         ("DataDirectory", tor_data_directory_path),
         ("ControlPort", control_port),
+        ("SocksPort", 0),
         ("CookieAuthentication", 0),
         ("HashedControlPassword", hashed_tor_password),
         ("Log", "notice stdout"),
@@ -359,7 +402,7 @@ def get_configuration(control_port: int, tor_password: str,
     for pluggable_transport, bridge_types in PLUGGABLE_TRANSPORTS.items():
         for bridge_type in bridge_types:
             if bridge_type in required_pts:
-                transport = ','.join(bridge_types) + " exec " +\
+                transport = ','.join(bridge_types) + " exec " + \
                     TOR_FILE_PATHS.get(pluggable_transport)
 
                 if pluggable_transport == "conjure":
@@ -507,7 +550,11 @@ class TorRunner:
         self.bridge_quantity = bridge_quantity
 
         if not verify_tor_installation():
-            install_tor()
+            download_url = get_tor_download_url(OPERATING_SYSTEM, ARCHITECTURE)
+            error_message = install_tor(download_url)
+
+            if error_message is not None:
+                raise OSError(error_message + " " + ERROR_MESSAGE)
 
 
     @property
@@ -519,7 +566,7 @@ class TorRunner:
             List[str]: A list of hostnames found in the hidden service directories.
         """
 
-        hidden_service_directories = self.hs_dirs\
+        hidden_service_directories = self.hs_dirs \
             if len(self.hs_dirs) > 0 else [HIDDEN_SERVICE_DIRECTORY_PATH]
 
         return find_hostnames(hidden_service_directories)
@@ -556,117 +603,118 @@ class TorRunner:
             None
         """
 
-        if not verify_tor_installation():
-            if not quite:
-                print("Installing Tor...")
-
-            install_tor()
-
         hidden_service_directories = []
         if len(listeners) > 0:
-            hidden_service_directories = self.hs_dirs\
+            hidden_service_directories = self.hs_dirs \
                 if len(self.hs_dirs) > 0 else [HIDDEN_SERVICE_DIRECTORY_PATH]
 
-        tor_password = generate_secure_random_string(32)
-        tor_data_directory_path = create_tor_data()
+        def tor_run(socks_port: Optional[Union[int, bool]] = None) -> None:
+            tor_password = generate_secure_random_string(32)
+            tor_data_directory_path = create_tor_data()
 
-        free_control_port, free_socks_port = self.get_ports()
-        if isinstance(socks_port, bool):
-            socks_port = None
+            free_control_port, free_socks_port = self.get_ports()
+            if isinstance(socks_port, bool):
+                socks_port = None
 
-            if socks_port is True:
-                socks_port = free_socks_port
+                if socks_port is True:
+                    socks_port = free_socks_port
 
-        config = get_configuration(
-            free_control_port, tor_password, hidden_service_directories,
-            listeners, tor_data_directory_path, self.bridges,
-            self.default_bridge_type, self.bridge_quantity,
-            socks_port
-        )
+            config = get_configuration(
+                free_control_port, tor_password, hidden_service_directories,
+                listeners, tor_data_directory_path, self.bridges,
+                self.default_bridge_type, self.bridge_quantity,
+                socks_port
+            )
 
-        config_string = configuration_to_str(config)
-        torrc_file_path = create_temp_torrc(config_string)
+            config_string = configuration_to_str(config)
+            torrc_file_path = create_temp_torrc(config_string)
 
-        atexit.register(self.exit)
+            atexit.register(self.exit)
 
-        commands = [TOR_FILE_PATHS["exe"], "-f", torrc_file_path]
+            commands = [TOR_FILE_PATHS["exe"], "-f", torrc_file_path]
 
-        if OPERATING_SYSTEM == 'linux':
-            current_ld_library_path = os.environ.get('LD_LIBRARY_PATH', '')
-            path_to_extend = os.path.join(TOR_DIRECTORY_PATH, 'tor')
+            if OPERATING_SYSTEM == 'linux':
+                current_ld_library_path = os.environ.get('LD_LIBRARY_PATH', '')
+                path_to_extend = os.path.join(TOR_DIRECTORY_PATH, 'tor')
 
-            if path_to_extend not in current_ld_library_path:
-                new_ld_library_path = f'{current_ld_library_path}:{path_to_extend}'\
-                    if current_ld_library_path else path_to_extend
+                if path_to_extend not in current_ld_library_path:
+                    new_ld_library_path = f'{current_ld_library_path}:{path_to_extend}' \
+                        if current_ld_library_path else path_to_extend
 
-                os.environ['LD_LIBRARY_PATH'] = new_ld_library_path
+                    os.environ['LD_LIBRARY_PATH'] = new_ld_library_path
 
-        tor_process = subprocess.Popen(
-            commands, stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, text=True
-        )
+            tor_process = subprocess.Popen(
+                commands, stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, text=True
+            )
 
-        tor_process_data = TorProcess(
-            tor_process, free_control_port, tor_password,
-            tor_data_directory_path, torrc_file_path, socks_port
-        )
+            tor_process_data = TorProcess(
+                tor_process, free_control_port, tor_password,
+                tor_data_directory_path, torrc_file_path, socks_port
+            )
 
-        self.tor_processes.append(tor_process_data)
+            self.tor_processes.append(tor_process_data)
 
-        progress = None
-        if not quite:
-            progress = Progress("Tor establishes a secure connection...", 100)
-
-        stdout = ""
-        for _ in range(TOR_TIMEOUT * 10):
-            ready, _, _ = select.select([tor_process.stdout], [], [], 0.1)
-            if not ready:
-                continue
-
-            output = tor_process.stdout.readline()
-            stdout += output
-
-            output = output.replace("\n", "").strip()
-
-            if output == '' and tor_process.poll() is not None:
-                break
-
-            if output:
-                percentage = get_percentage(output)
-                if not quite:
-                    progress.messages.append(output)
-                    if percentage is not None:
-                        progress.update(percentage)
-                    else:
-                        progress.update()
-
-                if percentage == 100:
-                    os.remove(torrc_file_path)
-                    break
-        else:
+            progress = None
             if not quite:
-                print("\n\n[Error] Timeout occurred while starting Tor.")
+                progress = Progress("Tor establishes a secure connection...", 100)
 
-            self.exit()
-            return
+            stdout = ""
+            for _ in range(TOR_TIMEOUT * 10):
+                try:
+                    ready, _, _ = select.select([tor_process.stdout], [], [], 0.1)
+                    if not ready:
+                        continue
+                except OSError:
+                    pass
 
-        return_code = tor_process.returncode
-        if isinstance(return_code, int):
-            if return_code > 0:
+                output = tor_process.stdout.readline()
+                stdout += output
+
+                output = output.replace("\n", "").strip()
+
+                if output == '' and tor_process.poll() is not None:
+                    break
+
+                if output:
+                    percentage = get_percentage(output)
+                    if not quite:
+                        progress.messages.append(output)
+                        if percentage is not None:
+                            progress.update(percentage)
+                        else:
+                            progress.update()
+
+                    if percentage == 100:
+                        os.remove(torrc_file_path)
+                        break
+
+            else:
                 if not quite:
-                    print("\n[Error] Error occurred while starting",
-                          "Tor: (Code", str(return_code) + ")")
-                    print(stdout)
+                    print("\n\n[Error] Timeout occurred while starting Tor.")
 
                 self.exit()
                 return
+
+            return_code = tor_process.returncode
+            if isinstance(return_code, int):
+                if return_code > 0:
+                    if not quite:
+                        print("\n[Error] Error occurred while starting",
+                            "Tor: (Code", str(return_code) + ")")
+                        print(stdout)
+
+                    self.exit()
+                    return
+
+        tor_run(socks_port)
 
         if wait:
             if not quite and len(hidden_service_directories) > 0:
                 joined_hostnames = ", ".join(find_hostnames(hidden_service_directories))
                 print("Running on", joined_hostnames, end = "")
 
-            tor_process.wait()
+            self.tor_processes[0].tor_process.wait()
 
 
     def flask_run(self, app, host: str = "127.0.0.1", port: int = 5000,

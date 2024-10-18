@@ -5,8 +5,8 @@ This module provides a collection of utility functions and classes that facilita
 various common operations, particularly in the context of system and file handling,
 network requests, and progress tracking.
 
-License:
-Made available under the GPL-3.0 license.
+License: Made available under the GPL-3.0 license.
+Source: https://github.com/tn3w/TorRunner
 """
 
 import re
@@ -14,7 +14,6 @@ import os
 import sys
 import math
 import time
-import json
 import socket
 import shutil
 import tarfile
@@ -22,14 +21,48 @@ import secrets
 import platform
 import urllib.error
 import urllib.request
-from typing import Optional, Tuple, Final, Union, List, Dict, Any
+from typing import Optional, Tuple, Final, List, Dict, Any
 
 
-VALID_OPERATING_SYSTEMS: Final[List[str]] = ["windows", "macos", "linux", "android"]
-ARCHITECTURE_MAPPINGS: Final[Dict[str, str]] = {
-    "amd64": "x86_64", "i386": "i686", "i686": "x86", "x86": "x86",
-    "x86_64": "x86_64", "armv7l": "armv7", "aarch64": "aarch64"
-}
+CURRENT_DIRECTORY_PATH: Final[str] = os.path.dirname(os.path.abspath(__file__))
+
+# Create the file test.env in the `src/tor_runner` folder if you do
+# not want to install the module with pip but want to import it from this
+# folder, e.g. to display code changes directly.
+def get_work_dir() -> str:
+    """
+    Determine the working directory for the application.
+
+    Returns:
+        str: The working directory path.
+    """
+
+    if os.path.exists(os.path.join(CURRENT_DIRECTORY_PATH, 'test.env')):
+        return CURRENT_DIRECTORY_PATH
+
+    try:
+        import pkg_resources
+    except Exception:
+        return CURRENT_DIRECTORY_PATH
+
+    try:
+        file_path = pkg_resources.resource_filename('tor_runner', '')
+    except (pkg_resources.DistributionNotFound, pkg_resources.UnknownExtra):
+        return CURRENT_DIRECTORY_PATH
+
+    if not os.path.exists(file_path):
+        return CURRENT_DIRECTORY_PATH
+
+    return file_path
+
+
+WORK_DIRECTORY_PATH: Final[str] = get_work_dir()
+
+DATA_DIRECTORY_PATH = os.path.join(WORK_DIRECTORY_PATH, "data")
+TOR_DATA_DIRECTORY_PATH = os.path.join(DATA_DIRECTORY_PATH, "tor_data")
+
+if not os.path.exists(DATA_DIRECTORY_PATH):
+    os.makedirs(DATA_DIRECTORY_PATH, exist_ok = True)
 
 
 def get_system_information() -> Tuple[Optional[str], Optional[str]]:
@@ -48,61 +81,15 @@ def get_system_information() -> Tuple[Optional[str], Optional[str]]:
         if "android" in operating_system:
             operating_system = "android"
 
-    if operating_system not in VALID_OPERATING_SYSTEMS:
+    if operating_system not in ["windows", "macos", "linux", "android"]:
         return None, None
 
     architecture = platform.machine().lower()
-    if operating_system != "android":
-        architecture = ARCHITECTURE_MAPPINGS.get(architecture, architecture)
+    if operating_system != "android" and not architecture == "i686":
+        architecture = "x86_64"
 
     return operating_system, architecture
 
-
-CURRENT_DIRECTORY_PATH: Final[str] = os.path.dirname(os.path.abspath(__file__))
-
-# Create the file test.env in the `src/tor_runner` folder if you do
-# not want to install the module with pip but want to import it from this
-# folder, e.g. to display code changes directly.
-pkg_resources_available = False
-if not os.path.exists(os.path.join(CURRENT_DIRECTORY_PATH, 'test.env')):
-    try:
-        import pkg_resources
-    except ImportError:
-        pass
-    else:
-        pkg_resources_available = True
-
-def get_work_dir() -> str:
-    """
-    Determine the working directory for the application.
-
-    Returns:
-        str: The working directory path.
-    """
-
-    if os.path.exists(os.path.join(CURRENT_DIRECTORY_PATH, '.test')):
-        return CURRENT_DIRECTORY_PATH
-
-    if not pkg_resources_available:
-        return CURRENT_DIRECTORY_PATH
-
-    try:
-        file_path = pkg_resources.resource_filename('tor_runner', '')
-    except (pkg_resources.DistributionNotFound, pkg_resources.UnknownExtra):
-        return CURRENT_DIRECTORY_PATH
-
-    if not os.path.exists(file_path):
-        return CURRENT_DIRECTORY_PATH
-
-    return file_path
-
-WORK_DIRECTORY_PATH: Final[str] = get_work_dir()
-
-DATA_DIRECTORY_PATH = os.path.join(WORK_DIRECTORY_PATH, "data")
-TOR_DATA_DIRECTORY_PATH = os.path.join(DATA_DIRECTORY_PATH, "tor_data")
-
-if not os.path.exists(DATA_DIRECTORY_PATH):
-    os.makedirs(DATA_DIRECTORY_PATH, exist_ok = True)
 
 OPERATING_SYSTEM, ARCHITECTURE = get_system_information()
 FILE_EXT: Final[str] = ".exe" if OPERATING_SYSTEM == "windows" else ""
@@ -359,7 +346,7 @@ class Progress:
         if len(self.messages) != 0:
             status += "\n"
 
-        status += f'🚀 {self.message} [{finished}% of {total}%] '\
+        status += f'🚀 {self.message} [{finished}% of {total}%] ' \
             + progress_bar + f" ({remaining_time_str} s) "
 
         if is_finished:
@@ -413,7 +400,7 @@ def can_write(file_path: str, content_size: Optional[int] = None) -> bool:
         return False
 
     if content_size is not None:
-        if not os.path.getsize(directory_path) + content_size\
+        if not os.path.getsize(directory_path) + content_size \
             <= os.stat(directory_path).st_blksize:
 
             return False
@@ -528,45 +515,6 @@ def delete(object_path: str) -> bool:
     return False
 
 
-def request_url(url: str, timeout: int = 3,
-                return_as_bytes: bool = True,
-                return_as_json: bool = False) -> Optional[Union[str, dict, bytes]]:
-    """
-    Makes a request and returns the data in the specified format.
-
-    Args:
-        url (str): The URL to send the GET request to.
-        timeout (int): The duration (in seconds) after which the connection will be cancelled.
-        return_as_bytes (bool): If True, the response data will be returned as bytes.
-        return_as_json (bool): If True, the response data will be returned as JSON.
-
-    Returns:
-        Response (Optional[Union[str, dict, bytes]]): Response data in the
-            requested format (bytes, JSON, or text).
-    """
-
-    req = urllib.request.Request(url, headers = REQUEST_HEADERS)
-
-    try:
-        with urllib.request.urlopen(req, timeout = timeout) as response:
-            response_data = response.read()
-
-        if return_as_bytes:
-            return response_data
-
-        string_data = response_data.decode("utf-8")
-
-        if not return_as_json:
-            return string_data
-
-        return json.load(string_data)
-    except (urllib.error.HTTPError, urllib.error.URLError,
-            socket.timeout, json.JSONDecodeError, UnicodeDecodeError):
-        pass
-
-    return None
-
-
 def download_file(url: str, file_path: str, timeout: int = 3) -> bool:
     """
     Downloads a file from the specified URL and saves it to the given file path.
@@ -671,7 +619,7 @@ def configuration_to_str(configurations: list) -> str:
 
 
 def find_available_port(min_port: int = 1000, max_port: int = 65535,
-                        exclude_ports: Optional[list] = None) -> int:
+                        exclude_ports: Optional[list] = None) -> Optional[int]:
     """
     Find an available port within a specified range, excluding any specified ports.
 
@@ -682,24 +630,31 @@ def find_available_port(min_port: int = 1000, max_port: int = 65535,
             Default is None, which means no ports are excluded.
 
     Returns:
-        int: An available port number within the specified range.
+        Optional[int]: An available port number within the specified range.
     """
 
     if exclude_ports is None:
         exclude_ports = []
 
-    with socket.socket() as tmpsock:
-        for port in range(min_port, max_port):
-            if port in exclude_ports:
-                continue
+    for port in range(min_port, max_port):
+        if port in exclude_ports:
+            continue
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s_all, \
+             socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s_local:
+
+            s_all.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s_local.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
             try:
-                tmpsock.bind(("127.0.0.1", port))
+                s_all.bind(("", port))
+                s_local.bind(("127.0.0.1", port))
+
                 return port
             except OSError:
                 continue
 
-    raise ValueError("No available port found in the specified range.")
+    return None
 
 
 def find_hostnames(hidden_service_directories: List[str]) -> List[str]:

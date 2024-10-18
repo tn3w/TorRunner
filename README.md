@@ -8,9 +8,9 @@
 - Vanguards
 - Auto Bridge Updates
 - Multi Threads
-- Tor preinstalled
 - Tor version check & auto update
 - Proxy mode
+- (not feasible) Tor preinstalled
 
 ## Examples
 
