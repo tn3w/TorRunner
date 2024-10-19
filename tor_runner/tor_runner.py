@@ -684,7 +684,7 @@ class TorRunner:
             hidden_service_directories = self.hs_dirs \
                 if len(self.hs_dirs) > 0 else [HIDDEN_SERVICE_DIRECTORY_PATH]
 
-        def tor_run(socks_port: Optional[Union[int, bool]] = None) -> None:
+        def tor_run(socks_port: Optional[Union[int, bool]] = None) -> bool:
             tor_password = generate_secure_random_string(32)
             tor_data_directory_path = create_tor_data()
 
@@ -763,7 +763,7 @@ class TorRunner:
                           "`--default-bridge-type obfs4`.")
 
                 self.exit()
-                return
+                return False
 
             return_code = tor_process.returncode
             if isinstance(return_code, int):
@@ -774,9 +774,13 @@ class TorRunner:
                         print(stdout)
 
                     self.exit()
-                    return
+                    return False
 
-        tor_run(socks_port)
+            return True
+
+        started_sucessfully = tor_run(socks_port)
+        if not started_sucessfully:
+            return
 
         if wait:
             if not quite and len(hidden_service_directories) > 0:
