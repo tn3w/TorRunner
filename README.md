@@ -22,7 +22,7 @@ tor_runner --help
 Output:
 ```
 usage: tor_runner [-h] [-p PORT] [-l [LISTENER ...]] [-t THREADS] [-d [HIDDEN_SERVICE_DIRS ...]] [-b [BRIDGES ...]] [-s SOCKS_PORT] [-v [VANGUARDS]] [--bridge-quantity BRIDGE_QUANTITY]
-                  [--default-bridge-type DEFAULT_BRIDGE_TYPE] [--delete] [--quiet]
+                  [--default-bridge-type DEFAULT_BRIDGE_TYPE] [--direct] [--delete] [--quiet]
 
 Run as a Tor hidden service, allowing configuration of listeners, hidden service directories, and bridges.
 
@@ -45,6 +45,7 @@ options:
                         Number of bridges to use for connecting to the Tor network.
   --default-bridge-type DEFAULT_BRIDGE_TYPE
                         Default bridge type to use when connecting to Tor.
+  --direct              Executes your command directly via Tor.
   --delete              Delete all data associated with tor_runner.
   --quiet               Run the script in quiet mode with no output.
 ```

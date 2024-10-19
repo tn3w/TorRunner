@@ -51,7 +51,7 @@ except ImportError:
     )
 
 
-TOR_TIMEOUT = 60 # Seconds
+TOR_TIMEOUT = 120 # Seconds
 
 
 def parse_listener(listener_str: str) -> List[Tuple[int, int]]:
@@ -237,14 +237,15 @@ def install_tor(download_url: str) -> Optional[str]:
     delete(TOR_ARCHIVE_FILE_PATH)
     delete(DEBUG_DIRECTORY_PATH)
 
-    if os.name == "nt":
+    if OPERATING_SYSTEM == "windows":
         delete(os.path.join(TOR_DIRECTORY_PATH, "tor", "tor-gencert.exe"))
 
-    for file in os.listdir(PLUGGABLE_TRANSPORTS_DIRECTORY_PATH):
-        if not file.strip().lower().startswith(("readme", "pt_config")):
+    for file_name in os.listdir(PLUGGABLE_TRANSPORTS_DIRECTORY_PATH):
+        normalized_file_name = file_name.strip().lower()
+        if not normalized_file_name.startswith(("readme", "pt_config")):
             continue
 
-        full_path = os.path.join(PLUGGABLE_TRANSPORTS_DIRECTORY_PATH, file)
+        full_path = os.path.join(PLUGGABLE_TRANSPORTS_DIRECTORY_PATH, file_name)
         delete(full_path)
 
     if not extracted_successfully:
@@ -386,20 +387,16 @@ def get_configuration(control_port: int, tor_password: str,
         ("GeoIPv6File", TOR_FILE_PATHS["geoip6"]),
         ("DataDirectory", tor_data_directory_path),
         ("ControlPort", control_port),
-        ("SocksPort", 0),
+        ("SocksPort", 0 if socks_port is None else socks_port),
         ("CookieAuthentication", 0),
         ("HashedControlPassword", hashed_tor_password),
         ("Log", "notice stdout"),
         ("ClientUseIPv6", 1),
         ("AvoidDiskWrites", 1),
         ("ClientOnly", 1),
-        ("ControlPortWriteToFile", 0),
         ("ClientPreferIPv6ORPort", 1),
         ("UseBridges", 1 if len(bridges) > 0 else 0)
     ]
-
-    if socks_port is not None:
-        configuration.append(("SocksPort", socks_port))
 
     required_pts = []
     for bridge in bridges:
@@ -500,6 +497,84 @@ class TorRunner:
     TorRunner is a class that runs Tor based on the operating system and architecture.
     """
 
+    @staticmethod
+    def set_ld_library_path_environ() -> None:
+        """
+        Sets the 'LD_LIBRARY_PATH' environment variable
+        to include the path to the Tor library.
+
+        Returns:
+            None
+        """
+
+        if OPERATING_SYSTEM != 'linux':
+            return
+
+        current_ld_library_path = os.environ.get('LD_LIBRARY_PATH', '')
+        path_to_extend = os.path.join(TOR_DIRECTORY_PATH, 'tor')
+
+        if path_to_extend in current_ld_library_path:
+            return
+
+        new_ld_library_path = f'{current_ld_library_path}:{path_to_extend}' \
+            if current_ld_library_path else path_to_extend
+
+        os.environ['LD_LIBRARY_PATH'] = new_ld_library_path
+
+
+    @staticmethod
+    def verify_or_install_tor(quite: bool = True) -> None:
+        """
+        Verifies if Tor is installed and installs it if it is not.
+
+        Args:
+            quite (bool): If True, suppresses progress output. Defaults to False.
+
+        Returns:
+            None
+        """
+
+        if verify_tor_installation():
+            return
+
+        if not quite:
+            print("Getting Tor download url...")
+        download_url = get_tor_download_url(OPERATING_SYSTEM, ARCHITECTURE)
+
+        if not quite:
+            print("Installing Tor...")
+        error_message = install_tor(download_url)
+
+        if error_message is not None:
+            raise OSError(error_message + " " + ERROR_MESSAGE)
+
+
+    @staticmethod
+    def direct(*args, wait: bool = True) -> None:
+        """
+        Runs the Tor executable with the specified arguments.
+
+        Args:
+            *args: Additional command-line arguments to pass to the Tor executable.
+            wait (bool): If set to True, the method will wait for the Tor process to finish.
+
+        Returns:
+            None
+        """
+
+        TorRunner.verify_or_install_tor()
+        TorRunner.set_ld_library_path_environ()
+
+        commands = [TOR_FILE_PATHS["exe"]]
+        commands.extend(args)
+
+        tor_process = subprocess.Popen(
+            commands, text=True
+        )
+
+        if wait:
+            tor_process.wait()
+
 
     @staticmethod
     def get_ports() -> Tuple[int, int]:
@@ -555,13 +630,6 @@ class TorRunner:
         self.default_bridge_type = default_bridge_type
         self.bridge_quantity = bridge_quantity
 
-        if not verify_tor_installation():
-            download_url = get_tor_download_url(OPERATING_SYSTEM, ARCHITECTURE)
-            error_message = install_tor(download_url)
-
-            if error_message is not None:
-                raise OSError(error_message + " " + ERROR_MESSAGE)
-
 
     @property
     def _hostnames(self) -> List[str]:
@@ -609,6 +677,8 @@ class TorRunner:
             None
         """
 
+        self.verify_or_install_tor(quite)
+
         hidden_service_directories = []
         if len(listeners) > 0:
             hidden_service_directories = self.hs_dirs \
@@ -637,18 +707,9 @@ class TorRunner:
 
             atexit.register(self.exit)
 
+            self.set_ld_library_path_environ()
+
             commands = [TOR_FILE_PATHS["exe"], "-f", torrc_file_path]
-
-            if OPERATING_SYSTEM == 'linux':
-                current_ld_library_path = os.environ.get('LD_LIBRARY_PATH', '')
-                path_to_extend = os.path.join(TOR_DIRECTORY_PATH, 'tor')
-
-                if path_to_extend not in current_ld_library_path:
-                    new_ld_library_path = f'{current_ld_library_path}:{path_to_extend}' \
-                        if current_ld_library_path else path_to_extend
-
-                    os.environ['LD_LIBRARY_PATH'] = new_ld_library_path
-
             tor_process = subprocess.Popen(
                 commands, stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE, text=True
@@ -697,7 +758,9 @@ class TorRunner:
 
             else:
                 if not quite:
-                    print("\n\n[Error] Timeout occurred while starting Tor.")
+                    print("\n\n[Error] A timeout occurred while starting Tor.",
+                          "Use bridges with `-b <BRIDGE>` or the default bridges with",
+                          "`--default-bridge-type obfs4`.")
 
                 self.exit()
                 return
@@ -707,7 +770,7 @@ class TorRunner:
                 if return_code > 0:
                     if not quite:
                         print("\n[Error] Error occurred while starting",
-                            "Tor: (Code", str(return_code) + ")")
+                              "Tor: (Code", str(return_code) + ")")
                         print(stdout)
 
                     self.exit()
@@ -784,6 +847,18 @@ def main() -> None:
         delete(DATA_DIRECTORY_PATH)
         sys.exit(0)
 
+    if "--direct" in ARGUMENTS:
+        arguments = ARGUMENTS
+
+        for argument in ["tor_runner", "--direct"]:
+            try:
+                arguments.remove(argument)
+            except ValueError:
+                pass
+
+        TorRunner.direct(*arguments)
+        sys.exit()
+
     parser = argparse.ArgumentParser(
         description = (
             "Run as a Tor hidden service, allowing configuration "
@@ -849,6 +924,11 @@ def main() -> None:
         help = "Default bridge type to use when connecting to Tor."
     )
     parser.add_argument(
+        "--direct",
+        action = "store_true",
+        help = "Executes your command directly via Tor."
+    )
+    parser.add_argument(
         "--delete",
         action = "store_true",
         help = "Delete all data associated with tor_runner."
@@ -860,6 +940,13 @@ def main() -> None:
     )
 
     args = parser.parse_args()
+    tor_runner = TorRunner(
+        hs_dirs = getattr(args, "hidden_service_dirs", None),
+        bridges = getattr(args, "bridges", None),
+        default_bridge_type = getattr(args, "default_bridge_type", None),
+        bridge_quantity = getattr(args, "bridge_quantity", None)
+    )
+
     listener = []
 
     port = getattr(args, "port", None)
@@ -879,12 +966,6 @@ def main() -> None:
 
         socks_port = arg_socks_port
 
-    tor_runner = TorRunner(
-        hs_dirs = getattr(args, "hidden_service_dirs", None),
-        bridges = getattr(args, "bridges", None),
-        default_bridge_type = getattr(args, "default_bridge_type", None),
-        bridge_quantity = getattr(args, "bridge_quantity", None)
-    )
     tor_runner.run(listener, socks_port, getattr(args, "quiet", False))
 
 
