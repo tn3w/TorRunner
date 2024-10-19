@@ -63,8 +63,8 @@ runner = TorRunner(
 )
 
 if __name__ == '__main__':
-    # Forwards 80 -> 5000 and 22 -> 22
-    runner.run([(80, 5000), (22, 22)], socks_port = 9050, quite = False, wait = True)
+    # Forwards 5000 -> 80 and 22 -> 22
+    runner.run([(5000, 80), (22, 22)], socks_port = 9050, quite = False, wait = True)
 ```
 
 ---
