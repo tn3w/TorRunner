@@ -11,9 +11,11 @@ Source: https://github.com/tn3w/TorRunner
 
 import re
 import os
+import io
 import sys
 import math
 import time
+import errno
 import socket
 import shutil
 import tarfile
@@ -22,6 +24,41 @@ import platform
 import urllib.error
 import urllib.request
 from typing import Optional, Tuple, Final, List, Dict, Any
+
+
+def get_system_information() -> Tuple[Optional[str], Optional[str]]:
+    """
+    Function to get the correct system information, including Android and various architectures.
+
+    Returns:
+        system_info (Tuple[Optional[str], Optional[str]]): The operating_system and architecture.
+    """
+
+    operating_system = platform.system().lower().strip()
+
+    if operating_system == "darwin":
+        operating_system = "macos"
+    elif operating_system == "linux":
+        if "android" in operating_system:
+            operating_system = "android"
+
+    if operating_system not in ["windows", "macos", "linux", "android"]:
+        return None, None
+
+    architecture = platform.machine().lower()
+    if operating_system != "android" and not architecture == "i686":
+        architecture = "x86_64"
+
+    return operating_system, architecture
+
+
+OPERATING_SYSTEM, ARCHITECTURE = get_system_information()
+IS_WINDOWS = OPERATING_SYSTEM == "windows" # Windows always requires special treatment.
+
+if IS_WINDOWS:
+    import msvcrt
+else:
+    import fcntl
 
 
 CURRENT_DIRECTORY_PATH: Final[str] = os.path.dirname(os.path.abspath(__file__))
@@ -64,35 +101,7 @@ TOR_DATA_DIRECTORY_PATH = os.path.join(DATA_DIRECTORY_PATH, "tor_data")
 if not os.path.exists(DATA_DIRECTORY_PATH):
     os.makedirs(DATA_DIRECTORY_PATH, exist_ok = True)
 
-
-def get_system_information() -> Tuple[Optional[str], Optional[str]]:
-    """
-    Function to get the correct system information, including Android and various architectures.
-
-    Returns:
-        system_info (Tuple[Optional[str], Optional[str]]): The operating_system and architecture.
-    """
-
-    operating_system = platform.system().lower().strip()
-
-    if operating_system == "darwin":
-        operating_system = "macos"
-    elif operating_system == "linux":
-        if "android" in operating_system:
-            operating_system = "android"
-
-    if operating_system not in ["windows", "macos", "linux", "android"]:
-        return None, None
-
-    architecture = platform.machine().lower()
-    if operating_system != "android" and not architecture == "i686":
-        architecture = "x86_64"
-
-    return operating_system, architecture
-
-
-OPERATING_SYSTEM, ARCHITECTURE = get_system_information()
-FILE_EXT: Final[str] = ".exe" if OPERATING_SYSTEM == "windows" else ""
+FILE_EXT: Final[str] = ".exe" if IS_WINDOWS else ""
 HIDDEN_SERVICE_DIRECTORY_PATH: Final[str] = os.path.join(DATA_DIRECTORY_PATH, "hidden_service")
 
 TOR_ARCHIVE_FILE_PATH: Final[str] = os.path.join(DATA_DIRECTORY_PATH, "tor.tar.gz")
@@ -448,8 +457,8 @@ def write(file_path: str, content: Any) -> bool:
     """
 
     try:
-        with open(file_path, "w" + ("b" if isinstance(content, bytes) else "")) as file:
-            file.write(content)
+        with open(file_path, "w" + ("b" if isinstance(content, bytes) else "")) as file_stream:
+            file_stream.write(content)
 
         return True
 
@@ -686,12 +695,141 @@ def find_hostnames(hidden_service_directories: List[str]) -> List[str]:
 
         file_content = read(hostname_path)
         if file_content is None:
-            print("on_tor.py: Error reading", hs_dir, "Skipping!")
+            print("common.py: Error reading", hs_dir, "Skipping!")
             continue
 
         hostnames.append("http://" + file_content)
 
     return hostnames
+
+
+def is_process_running(process_id: str) -> bool:
+    """
+    Check if a process with the given process ID is currently running.
+
+    Args:
+        process_id (str): The ID of the process to check.
+
+    Returns:
+        bool: True if the process is running, False otherwise.
+    """
+
+    try:
+        os.kill(process_id, 0)
+    except OSError as exc:
+        if exc.errno == errno.ESRCH:
+            return False
+
+    return True
+
+
+class DirectoryLock:
+    """
+    A class to manage a directory lock using a lock file.
+    """
+
+
+    def __init__(self, directory_path: str) -> None:
+        """
+        Initialize the DirectoryLock with the specified directory path.
+
+        Args:
+            directory_path (str): The path to the directory to be locked.
+        """
+
+        self.lock_file_path = os.path.join(directory_path, "running.lock")
+
+
+    @property
+    def locked(self) -> bool:
+        """
+        Check if the directory is currently locked.
+
+        Returns:
+            bool: True if the directory is locked, False otherwise.
+        """
+
+        if not os.path.isfile(self.lock_file_path):
+            return False
+
+        try:
+            with open(self.lock_file_path, "r", encoding = "utf-8") as file_stream:
+                try:
+                    if IS_WINDOWS:
+                        msvcrt.locking(file_stream.fileno(), msvcrt.LK_NBLCK, 1)
+                        msvcrt.locking(file_stream.fileno(), msvcrt.LK_UNLCK, 1)
+                    else:
+                        fcntl.flock(file_stream, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                        fcntl.flock(file_stream, fcntl.LOCK_UN)
+
+                except (IOError, OSError):
+                    return True
+
+                file_content = file_stream.read()
+                return is_process_running(file_content.strip())
+
+        except (FileNotFoundError, IsADirectoryError, OSError, IOError,
+                PermissionError, ValueError, TypeError, UnicodeDecodeError):
+            pass
+
+        return False
+
+
+    def create(self, process_id: Optional[int] = None) -> Optional[io.TextIOWrapper]:
+        """
+        Create a lock file to indicate that the directory is locked.
+
+        Returns:
+            Optional[io.TextIOWrapper]: A file stream to the lock file if
+                created successfully, None otherwise.
+        """
+
+        file_stream = None
+
+        try:
+            file_stream = open(self.lock_file_path, "w", encoding = "utf-8")
+
+            if IS_WINDOWS:
+                msvcrt.locking(file_stream.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                fcntl.flock(file_stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+            if process_id is None:
+                process_id = os.getpid()
+
+            file_stream.write(f"{process_id}")
+            file_stream.flush()
+            return file_stream
+
+        except (PermissionError, IsADirectoryError, OSError, IOError,
+                FileNotFoundError, ValueError, TypeError, UnicodeEncodeError):
+            if file_stream:
+                file_stream.close()
+
+        return None
+
+
+    def remove(self, lock_file: Optional[io.TextIOWrapper] = None) -> None:
+        """
+        Remove the lock file and release the lock.
+
+        Args:
+            lock_file (Optional[io.TextIOWrapper]): The file stream of the lock file to be removed.
+                If None, only the file will be deleted.
+        """
+
+        if lock_file:
+            try:
+                if IS_WINDOWS:
+                    msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    fcntl.flock(lock_file, fcntl.LOCK_UN)
+            except (IOError, OSError):
+                pass
+
+            lock_file.close()
+
+        delete(self.lock_file_path)
 
 
 if __name__ == "__main__":

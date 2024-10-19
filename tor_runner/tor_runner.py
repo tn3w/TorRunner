@@ -13,6 +13,7 @@ Source: https://github.com/tn3w/TorRunner
 
 import re
 import os
+import io
 import sys
 import socket
 import atexit
@@ -31,21 +32,21 @@ from typing import Optional, Tuple, Union, List, Any
 
 try:
     from .common import (
-        TOR_DIRECTORY_PATH, IMPORTANT_FILE_KEYS, TOR_FILE_PATHS,
+        TOR_DIRECTORY_PATH, IMPORTANT_FILE_KEYS, TOR_FILE_PATHS, IS_WINDOWS,
         OPERATING_SYSTEM, ARCHITECTURE, ERROR_MESSAGE, TOR_ARCHIVE_FILE_PATH,
         DEBUG_DIRECTORY_PATH, PLUGGABLE_TRANSPORTS_DIRECTORY_PATH,
         DEFAULT_BRIDGES, DATA_DIRECTORY_PATH, PLUGGABLE_TRANSPORTS,
-        CURRENT_DIRECTORY_PATH, HIDDEN_SERVICE_DIRECTORY_PATH, Progress,
+        CURRENT_DIRECTORY_PATH, HIDDEN_SERVICE_DIRECTORY_PATH, Progress, DirectoryLock,
         extract_links, download_file, extract_tar, delete, find_available_port,
         find_hostnames, configuration_to_str, generate_secure_random_string, write
     )
 except ImportError:
     from common import (
-        TOR_DIRECTORY_PATH, IMPORTANT_FILE_KEYS, TOR_FILE_PATHS,
+        TOR_DIRECTORY_PATH, IMPORTANT_FILE_KEYS, TOR_FILE_PATHS, IS_WINDOWS,
         OPERATING_SYSTEM, ARCHITECTURE, ERROR_MESSAGE, TOR_ARCHIVE_FILE_PATH,
         DEBUG_DIRECTORY_PATH, PLUGGABLE_TRANSPORTS_DIRECTORY_PATH,
         DEFAULT_BRIDGES, DATA_DIRECTORY_PATH, PLUGGABLE_TRANSPORTS,
-        CURRENT_DIRECTORY_PATH, HIDDEN_SERVICE_DIRECTORY_PATH, Progress,
+        CURRENT_DIRECTORY_PATH, HIDDEN_SERVICE_DIRECTORY_PATH, Progress, DirectoryLock,
         extract_links, download_file, extract_tar, delete, find_available_port,
         find_hostnames, configuration_to_str, generate_secure_random_string, write
     )
@@ -237,7 +238,7 @@ def install_tor(download_url: str) -> Optional[str]:
     delete(TOR_ARCHIVE_FILE_PATH)
     delete(DEBUG_DIRECTORY_PATH)
 
-    if OPERATING_SYSTEM == "windows":
+    if IS_WINDOWS:
         delete(os.path.join(TOR_DIRECTORY_PATH, "tor", "tor-gencert.exe"))
 
     for file_name in os.listdir(PLUGGABLE_TRANSPORTS_DIRECTORY_PATH):
@@ -311,7 +312,7 @@ def get_default_bridges(bridge_type: str = "obfs4", quantity: int = 3,
     return bridges
 
 
-def create_tor_data() -> str:
+def create_tor_data(random_name: str) -> str:
     """
     Creates a new directory for Tor data with a randomly generated name.
 
@@ -319,7 +320,6 @@ def create_tor_data() -> str:
         str: The path to the newly created Tor data directory.
     """
 
-    random_name = generate_secure_random_string(8)
     tor_data_directory_path = os.path.join(DATA_DIRECTORY_PATH, f"{random_name}.data")
 
     if not os.path.exists(tor_data_directory_path):
@@ -328,7 +328,7 @@ def create_tor_data() -> str:
     return tor_data_directory_path
 
 
-def create_temp_torrc(content: str) -> str:
+def create_temp_torrc(content: str, random_name: str) -> str:
     """
     Creates a temporary Tor configuration file with a randomly generated name.
 
@@ -339,7 +339,6 @@ def create_temp_torrc(content: str) -> str:
         str: The path to the newly created Tor configuration file.
     """
 
-    random_name = generate_secure_random_string(8)
     torrc_path = os.path.join(DATA_DIRECTORY_PATH, f"{random_name}.torrc")
 
     write(torrc_path, content)
@@ -464,8 +463,8 @@ class TorProcess:
 
 
     def __init__(self, tor_process: subprocess.Popen, control_port: str, password: str,
-                 data_directory_path: str, torrc_file_path: str,
-                 socks_port: Optional[int] = None) -> None:
+                 data_directory_path: str, directory_lock_stream: io.TextIOWrapper,
+                 torrc_file_path: str, socks_port: Optional[int] = None) -> None:
         """
         Initializes a tor process data structure.
 
@@ -488,6 +487,7 @@ class TorProcess:
         self.control_port = control_port
         self.password = password
         self.data_directory_path = data_directory_path
+        self.directory_lock_stream = directory_lock_stream
         self.torrc_file_path = torrc_file_path
         self.socks_port = socks_port
 
@@ -496,6 +496,35 @@ class TorRunner:
     """
     TorRunner is a class that runs Tor based on the operating system and architecture.
     """
+
+
+    @staticmethod
+    def clean() -> None:
+        """
+        Cleans up the data directory by removing specific files and directories.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+
+        for file_or_directory_name in os.listdir(DATA_DIRECTORY_PATH):
+            file_or_directory_path = os.path.join(DATA_DIRECTORY_PATH, file_or_directory_name)
+            if not file_or_directory_name.endswith(".data") or\
+                not os.path.isdir(file_or_directory_path):
+
+                continue
+
+            if DirectoryLock(file_or_directory_path).locked:
+                continue
+
+            delete(file_or_directory_path)
+
+            random_name = file_or_directory_name.split(".data")[0]
+            delete(os.path.join(DATA_DIRECTORY_PATH, random_name + ".torrc"))
+
 
     @staticmethod
     def set_ld_library_path_environ() -> None:
@@ -658,8 +687,12 @@ class TorRunner:
             try:
                 tor_process_data.tor_process.terminate()
             finally:
+                DirectoryLock(tor_process_data.data_directory_path)\
+                    .remove(tor_process_data.directory_lock_stream)
                 delete(tor_process_data.data_directory_path)
                 delete(tor_process_data.torrc_file_path)
+
+                TorRunner.clean()
 
 
     def run(self, listeners: list, socks_port: Optional[Union[int, bool]] = None,
@@ -686,7 +719,9 @@ class TorRunner:
 
         def tor_run(socks_port: Optional[Union[int, bool]] = None) -> bool:
             tor_password = generate_secure_random_string(32)
-            tor_data_directory_path = create_tor_data()
+
+            random_name = generate_secure_random_string(16)
+            tor_data_directory_path = create_tor_data(random_name)
 
             free_control_port, free_socks_port = self.get_ports()
             if isinstance(socks_port, bool):
@@ -703,7 +738,7 @@ class TorRunner:
             )
 
             config_string = configuration_to_str(config)
-            torrc_file_path = create_temp_torrc(config_string)
+            torrc_file_path = create_temp_torrc(config_string, random_name)
 
             atexit.register(self.exit)
 
@@ -715,9 +750,13 @@ class TorRunner:
                 stderr=subprocess.PIPE, text=True
             )
 
+            data_directory_lock_stream = DirectoryLock(
+                tor_data_directory_path
+            ).create(tor_process.pid)
+
             tor_process_data = TorProcess(
-                tor_process, free_control_port, tor_password,
-                tor_data_directory_path, torrc_file_path, socks_port
+                tor_process, free_control_port, tor_password, tor_data_directory_path,
+                data_directory_lock_stream,torrc_file_path, socks_port
             )
 
             self.tor_processes.append(tor_process_data)
@@ -753,7 +792,7 @@ class TorRunner:
                             progress.update()
 
                     if percentage == 100:
-                        os.remove(torrc_file_path)
+                        delete(torrc_file_path)
                         break
 
             else:
@@ -846,6 +885,8 @@ def main() -> None:
     """
     The main function called at start
     """
+
+    TorRunner.clean()
 
     if "--delete" in ARGUMENTS:
         delete(DATA_DIRECTORY_PATH)
