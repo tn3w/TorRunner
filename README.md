@@ -4,13 +4,16 @@
 
 <br>
 
+## Special thanks
+This project uses the Vanguards implementation of [mikeperry-tor](https://github.com/mikeperry-tor) at [mikeperry-tor/vanguards](https://github.com/mikeperry-tor/vanguards) under MIT license found [here](https://github.com/mikeperry-tor/vanguards/blob/master/LICENSE).
+
 ## 📌 Planned for the future
-- Vanguards
-- Auto Bridge Updates
-- Multi Threads
-- Tor version check & auto update
-- Proxy mode
-- (not feasible) Tor preinstalled
+- [x] Vanguards [dummy implemented]
+- [ ] Auto Bridge Updates
+- [ ] Multi Threads
+- [ ] Tor version check & auto update
+- [ ] Proxy mode
+- ❌ (not feasible) Tor preinstalled
 
 ## Examples
 
