@@ -14,7 +14,7 @@ with open('README.md', 'r', encoding='utf-8') as readable_file:
 
 setup(
     name = "tor_runner",
-    version = "1.4.7.4",
+    version = "1.4.7.5",
     description = "TorRunner is designed to facilitate the deployment of Tor hidden services.",
     long_description = long_description,
     long_description_content_type = 'text/markdown',

@@ -245,6 +245,7 @@ def control_loop(state, control_port: int, control_password: str):
 
 
 class Vanguards:
+    # into vanguards.py
     # __init__
     # run
     # _control_loop
