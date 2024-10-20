@@ -242,3 +242,10 @@ def control_loop(state, control_port: int, control_password: str):
         time.sleep(1)
 
     return "closed"
+
+
+class Vanguards:
+    # __init__
+    # run
+    # _control_loop
+    pass
