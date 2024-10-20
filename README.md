@@ -13,7 +13,7 @@ This project uses the Vanguards implementation of [mikeperry-tor](https://github
 - [ ] Multi Threads
 - [ ] Tor version check & auto update
 - [ ] Proxy mode<br>
-  ❌ (not feasible) Tor preinstalled
+❌ (not feasible) Tor preinstalled
 
 ## Examples
 
