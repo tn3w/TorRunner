@@ -856,11 +856,14 @@ class TorRunner:
 
             try:
                 from vanguards import Vanguards
-            except ImportError as exc:
-                if not quite:
-                    print("\n[Vanguards Error] Error occurred while importing Vanguards:", exc)
+            except ImportError:
+                try:
+                    from .vanguards import Vanguards
+                except ImportError as exc:
+                    if not quite:
+                        print("\n[Vanguards Error] Error occurred while importing Vanguards:", exc)
 
-                return
+                    return
 
             if not quite:
                 print("\nTrying to start Vanguards...")
