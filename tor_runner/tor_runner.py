@@ -28,6 +28,7 @@ import urllib.error
 import urllib.request
 from itertools import chain
 from sys import argv as ARGUMENTS
+from multiprocessing import Process
 from typing import Optional, Tuple, Union, List, Any
 
 try:
@@ -490,6 +491,7 @@ class TorProcess:
         self.directory_lock_stream = directory_lock_stream
         self.torrc_file_path = torrc_file_path
         self.socks_port = socks_port
+        self.vanguard_process: Optional[Process] = None
 
 
 class TorRunner:
@@ -622,6 +624,7 @@ class TorRunner:
 
     def __init__(self, hs_dirs: Optional[List[str]] = None,
                  bridges: Optional[List[str]] = None,
+                 vanguards_threads: int = 0,
                  default_bridge_type: Optional[str] = None,
                  bridge_quantity: Optional[int] = None) -> None:
         """
@@ -654,6 +657,7 @@ class TorRunner:
             bridges = []
 
         self.bridges = bridges
+        self.vanguards_threads = vanguards_threads
         self.tor_processes: List[TorProcess] = []
 
         self.default_bridge_type = default_bridge_type
@@ -687,12 +691,22 @@ class TorRunner:
             try:
                 tor_process_data.tor_process.terminate()
             finally:
-                DirectoryLock(tor_process_data.data_directory_path)\
-                    .remove(tor_process_data.directory_lock_stream)
-                delete(tor_process_data.data_directory_path)
-                delete(tor_process_data.torrc_file_path)
+                try:
+                    if tor_process_data.vanguard_process is not None:
+                        tor_process_data.vanguard_process.terminate()
+                        tor_process_data.vanguard_process.join()
+                except AttributeError:
+                    pass
 
-                TorRunner.clean()
+                try:
+                    DirectoryLock(tor_process_data.data_directory_path)\
+                        .remove(tor_process_data.directory_lock_stream)
+                    delete(tor_process_data.data_directory_path)
+                    delete(tor_process_data.torrc_file_path)
+
+                    TorRunner.clean()
+                except ValueError:
+                    pass
 
 
     def run(self, listeners: list, socks_port: Optional[Union[int, bool]] = None,
@@ -718,7 +732,7 @@ class TorRunner:
                 if len(self.hs_dirs) > 0 else [HIDDEN_SERVICE_DIRECTORY_PATH]
 
         def tor_run(socks_port: Optional[Union[int, bool]] = None) -> bool:
-            tor_password = generate_secure_random_string(32)
+            control_password = generate_secure_random_string(32)
 
             random_name = generate_secure_random_string(16)
             tor_data_directory_path = create_tor_data(random_name)
@@ -731,7 +745,7 @@ class TorRunner:
                     socks_port = free_socks_port
 
             config = get_configuration(
-                free_control_port, tor_password, hidden_service_directories,
+                free_control_port, control_password, hidden_service_directories,
                 listeners, tor_data_directory_path, self.bridges,
                 self.default_bridge_type, self.bridge_quantity,
                 socks_port
@@ -755,8 +769,8 @@ class TorRunner:
             ).create(tor_process.pid)
 
             tor_process_data = TorProcess(
-                tor_process, free_control_port, tor_password, tor_data_directory_path,
-                data_directory_lock_stream,torrc_file_path, socks_port
+                tor_process, free_control_port, control_password, tor_data_directory_path,
+                data_directory_lock_stream, torrc_file_path, socks_port
             )
 
             self.tor_processes.append(tor_process_data)
@@ -821,12 +835,50 @@ class TorRunner:
         if not started_sucessfully:
             return
 
-        if wait:
-            if not quite and len(hidden_service_directories) > 0:
-                joined_hostnames = ", ".join(find_hostnames(hidden_service_directories))
-                print("Running on", joined_hostnames, end = "")
+        if not quite and len(hidden_service_directories) > 0:
+            joined_hostnames = ", ".join(find_hostnames(hidden_service_directories))
+            print("Running on", joined_hostnames, end = "")
 
+        if wait and self.vanguards_threads == 0:
             self.tor_processes[0].tor_process.wait()
+
+        if self.vanguards_threads != 0:
+            try:
+                import stem as _
+            except ImportError:
+                print(
+                    "\n[Vanguards Error] Stem is not installed, install stem with "
+                    "`pip install stem` after you have created a virtual "
+                    "environment: `python3 -m venv .venv` and activated: "
+                    "`source .venv/bin/activate`."
+                )
+                return
+
+            try:
+                from vanguards import Vanguards
+            except ImportError as exc:
+                if not quite:
+                    print("\n[Vanguards Error] Error occurred while importing Vanguards:", exc)
+
+                return
+
+            if not quite:
+                print("\nTrying to start Vanguards...")
+
+            new_tor_processes = []
+            for tor_process in self.tor_processes:
+                vanguards = Vanguards(
+                    tor_process.data_directory_path,
+                    tor_process.control_port, tor_process.password
+                )
+
+                vanguard_process = Process(
+                    target = vanguards.run, args = (self.vanguards_threads, )
+                )
+                vanguard_process.run()
+
+                tor_process.vanguard_process = vanguard_process
+                new_tor_processes.append(tor_process)
 
 
     def flask_run(self, app, host: str = "127.0.0.1", port: int = 5000,
@@ -881,7 +933,7 @@ class TorRunner:
         app.run(host, port, **kwargs)
 
 
-def main() -> None:
+def run_main() -> None:
     """
     The main function called at start
     """
@@ -985,9 +1037,11 @@ def main() -> None:
     )
 
     args = parser.parse_args()
+
     tor_runner = TorRunner(
         hs_dirs = getattr(args, "hidden_service_dirs", None),
         bridges = getattr(args, "bridges", None),
+        vanguards_threads = getattr(args, "vanguards", 0),
         default_bridge_type = getattr(args, "default_bridge_type", None),
         bridge_quantity = getattr(args, "bridge_quantity", None)
     )
@@ -1012,6 +1066,18 @@ def main() -> None:
         socks_port = arg_socks_port
 
     tor_runner.run(listener, socks_port, getattr(args, "quiet", False))
+
+
+def main():
+    """
+    Runs main and handles KeyboardInterrupt.
+    """
+
+    try:
+        run_main()
+    except KeyboardInterrupt:
+        print("\nReceived CTRL+C command. Exiting now.")
+        sys.exit(0)
 
 
 if __name__ == "__main__":

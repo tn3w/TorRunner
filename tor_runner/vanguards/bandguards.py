@@ -53,11 +53,6 @@ CONN_MAX_DISCONNECTED_SECS = 15
 _CELL_PAYLOAD_SIZE = 509
 _RELAY_HEADER_SIZE = 11
 _RELAY_PAYLOAD_SIZE = _CELL_PAYLOAD_SIZE - _RELAY_HEADER_SIZE
-_CELL_DATA_RATE = (float(_RELAY_PAYLOAD_SIZE)/_CELL_PAYLOAD_SIZE)
-
-_SECS_PER_HOUR = 60*60
-_BYTES_PER_KB = 1024
-_BYTES_PER_MB = 1024*_BYTES_PER_KB
 
 # Because we have to map circuits to guard destroy events, we need.
 # The event really should arrive in the same second, but let's
@@ -129,13 +124,16 @@ class BandwidthStats:
     def _orconn_init(self, controller):
         fake_id = 0
         for l in controller.get_info("orconn-status").split("\n"):
-            if len(l):
-                self.orconn_event(
-                    stem.response.ControlMessage.from_str(
-                        "650 ORCONN " + l + " ID=" + str(fake_id) + "\r\n", "EVENT"
-                    )
+            if not len(l):
+                continue
+
+            self.orconn_event(
+                stem.response.ControlMessage.from_str(
+                    "650 ORCONN " + l + " ID=" + str(fake_id) + "\r\n", "EVENT"
                 )
-                fake_id += 1
+            )
+            fake_id += 1
+
         self.max_fake_id = fake_id - 1
 
     def _fixup_orconn_event(self, event):
@@ -157,11 +155,13 @@ class BandwidthStats:
         if event.status == "CONNECTED":
             if self.disconnected_conns:
                 disconnected_secs = event.arrived_at - self.no_conns_since
-                plog("NOTICE", "Reconnected to the Tor network after %d seconds.", disconnected_secs)
+                plog("NOTICE", f"Reconnected to the Tor network after {str(disconnected_secs)} seconds.")
+
             self.live_guard_conns[event.id] = self.guards[guard_fp]
             self.guards[guard_fp].conns_made += 1
             self.no_conns_since = 0
             self.disconnected_conns = False
+
         elif event.status in ["CLOSED", "FAILED"]:
             if event.id not in self.live_guard_conns:
                 self._fixup_orconn_event(event)
@@ -171,7 +171,9 @@ class BandwidthStats:
                     if c.in_use and c.guard_fp == guard_fp:
                         c.possibly_destroyed_at = event.arrived_at
                         self.live_guard_conns[event.id].killed_conn_at = event.arrived_at
-                        plog("INFO", "Marking possibly destroyed circ %s at %d", c.circ_id, event.arrived_at)
+
+                        plog("INFO", "Marking possibly destroyed circ {} at {}".format(
+                             c.circ_id, event.arrived_at))
 
                 del self.live_guard_conns[event.id]
                 if len(self.live_guard_conns) == 0 and not self.no_conns_since:
@@ -181,6 +183,7 @@ class BandwidthStats:
                 if event.reason not in self.guards[guard_fp].close_reasons:
                     self.guards[guard_fp].close_reasons[event.reason] = 0
                 self.guards[guard_fp].close_reasons[event.reason] += 1
+
         plog("INFO", event.raw_content())
 
     def circuit_destroyed(self, event):
@@ -218,16 +221,14 @@ class BandwidthStats:
                         and event.remote_reason == "CHANNEL_CLOSED"
                     ):
                         self.circuit_destroyed(event)
+
                     else:
-                        plog(
-                            "INFO",
-                            "Circuit %s possibly destroyed, but outside of the time window (%d - %d)",
-                            event.id,
-                            event.arrived_at,
-                            self.circs[event.id].possibly_destroyed_at,
-                        )
+                        plog("INFO", "Circuit {} possibly destroyed, but outside of the time window ({} - {})".format(
+                             event.id, event.arrived_at, self.circs[event.id].possibly_destroyed_at))
+
                 plog("DEBUG", "Closed hs circ for " + event.raw_content())
                 del self.circs[event.id]
+
             return
 
         if event.id not in self.circs:
@@ -255,7 +256,7 @@ class BandwidthStats:
 
             if self.disconnected_circs:
                 disconnected_secs = event.arrived_at - self.no_circs_since
-                plog("NOTICE", "Circuit use resumed after %d seconds.", disconnected_secs)
+                plog("NOTICE", f"Circuit use resumed after {str(disconnected_secs)} seconds.")
             self.no_circs_since = None
             self.disconnected_circs = False
 
@@ -270,7 +271,7 @@ class BandwidthStats:
         elif event.status == "EXTENDED":
             if self.disconnected_circs:
                 disconnected_secs = event.arrived_at - self.no_circs_since
-                plog("NOTICE", "Circuit use resumed after %d seconds.", disconnected_secs)
+                plog("NOTICE", f"Circuit use resumed after {str(disconnected_secs)} seconds.")
 
             self.no_circs_since = None
             self.disconnected_circs = False

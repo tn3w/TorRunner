@@ -8,7 +8,7 @@
 This project uses the Vanguards implementation of [mikeperry-tor](https://github.com/mikeperry-tor) at [mikeperry-tor/vanguards](https://github.com/mikeperry-tor/vanguards) under MIT license found [here](https://github.com/mikeperry-tor/vanguards/blob/master/LICENSE).
 
 ## 📌 Planned for the future
-- [x] Vanguards [dummy implemented]
+- [x] Vanguards
 - [ ] Auto Bridge Updates
 - [ ] Multi Threads
 - [ ] Tor version check & auto update
@@ -16,6 +16,7 @@ This project uses the Vanguards implementation of [mikeperry-tor](https://github
 ❌ (not feasible) Tor preinstalled
 
 ## Examples
+Note: TorRunner uses only built-in Python libraries, if you want to use vanguards, install stem with `pip install stem` after you have created a virtual environment: `python3 -m venv .venv` and activated: `source .venv/bin/activate`.
 
 ### On the command line
 ```bash

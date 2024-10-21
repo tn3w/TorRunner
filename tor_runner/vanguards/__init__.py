@@ -13,6 +13,11 @@ License: Made available under the MIT license.
 Source: https://github.com/mikeperry-tor/vanguards
 """
 
+from .vanguards import Vanguards
+
+__all__ = ["Vanguards"]
+
+
 __version__ = "0.4.0-dev1"
 __author__ = "Mike Perry"
 __license__ = "MIT/Expat"

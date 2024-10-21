@@ -17,8 +17,8 @@ import getpass
 import stem
 
 from .logger import plog
-from . import __version__
 
+__version__ = "0.4.0-dev1"
 _CLOSE_CIRCUITS = True
 
 def authenticate_any(controller, passwd=""):
@@ -31,14 +31,14 @@ def authenticate_any(controller, passwd=""):
         try:
             controller.authenticate(password=passwd)
         except stem.connection.PasswordAuthFailed:
-            print("Unable to authenticate, password is incorrect")
+            plog("NOTICE", "Unable to authenticate, password is incorrect")
             sys.exit(1)
     except stem.connection.AuthenticationFailure as exc:
-        print("Unable to authenticate: %s" % exc)
+        plog("NOTICE", "Unable to authenticate:", exc)
         sys.exit(1)
 
-    plog("NOTICE", "Vanguards %s connected to Tor %s using stem %s",
-         __version__, controller.get_version(), stem.__version__)
+    plog("NOTICE", "Vanguards {} connected to Tor {} using stem {}".format(
+         __version__, controller.get_version(), stem.__version__))
 
 def get_consensus_weights(consensus_filename):
     parsed_consensus = next(stem.descriptor.parse_file(

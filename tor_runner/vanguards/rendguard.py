@@ -51,12 +51,11 @@ class RendGuard:
 
         self.use_counts[r].used += 1.0
         self.total_use_counts += 1.0
-        plog("DEBUG", "Relay " + r_name + " used %d times out of %d, " +
-             "for a use rate of %f%%. It has a consensus "
-             "weight of %f%%", int(self.use_counts[r].used),
-             int(self.total_use_counts),
-             (100.0 * self.use_counts[r].used) / self.total_use_counts,
-             100.0 * self.use_counts[r].weight)
+        plog("DEBUG", "Relay {} used {} times out of {}, for a use rate of {:.2f}%. It has a consensus weight of {:.2f}%".format(
+            r_name, int(self.use_counts[r].used), int(self.total_use_counts), 
+            (100.0 * self.use_counts[r].used) / self.total_use_counts, 
+            100.0 * self.use_counts[r].weight)
+        )
 
         # TODO: Can we base this check on statistical confidence intervals?
         if (self.total_use_counts >= REND_USE_GLOBAL_START_COUNT and
@@ -64,17 +63,13 @@ class RendGuard:
                 self.use_counts[r].used / self.total_use_counts >
                 self.use_counts[r].weight * REND_USE_MAX_USE_TO_BW_RATIO):
 
-            # Let's warn if they disable circuit closing.
-            if REND_USE_CLOSE_CIRCUITS_ON_OVERUSE:
-                loglevel = "NOTICE"
-            else:
-                loglevel = "WARN"
-            plog(loglevel, "Relay " + r_name + " used %d times out of %d, " +
-                 "for a use rate of %f%%. This is above its consensus "
-                 "weight of %f%%", int(self.use_counts[r].used),
-                 int(self.total_use_counts),
-                 (100.0 * self.use_counts[r].used) / self.total_use_counts,
+            loglevel = "NOTICE" if REND_USE_CLOSE_CIRCUITS_ON_OVERUSE else "WARN"
+
+            plog(loglevel, "Relay {} used {} times out of {}, for a use rate of {:.2f}%. This is above its consensus weight of {:.2f}%".format(
+                 r_name, int(self.use_counts[r].used), int(self.total_use_counts), 
+                 (100.0 * self.use_counts[r].used) / self.total_use_counts, 
                  100.0 * self.use_counts[r].weight)
+            )
             return 0
         return 1
 
@@ -107,8 +102,8 @@ class RendGuard:
             i += 1
 
         if self.total_use_counts >= REND_USE_SCALE_AT_COUNT:
-            plog("INFO", "Total use counts %d reached the scale count %d. Scaling.",
-                 self.total_use_counts, REND_USE_SCALE_AT_COUNT)
+            plog("INFO", "Total use counts {} reached the scale count {}. Scaling.".format(
+                 self.total_use_counts, REND_USE_SCALE_AT_COUNT))
 
         # Periodically we divide counts by two, to avoid overcounting
         # high-uptime relays vs old ones
