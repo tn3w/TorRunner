@@ -948,13 +948,12 @@ def run_main() -> None:
         sys.exit(0)
 
     if "--direct" in ARGUMENTS:
-        arguments = ARGUMENTS
+        arguments = ARGUMENTS[1:]
 
-        for argument in ["tor_runner", "--direct"]:
-            try:
-                arguments.remove(argument)
-            except ValueError:
-                pass
+        try:
+            arguments.remove("--direct")
+        except ValueError:
+            pass
 
         TorRunner.direct(*arguments)
         sys.exit()
