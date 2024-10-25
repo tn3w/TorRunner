@@ -14,7 +14,7 @@ with open('README.md', 'r', encoding='utf-8') as readable_file:
 
 setup(
     name = "tor_runner",
-    version = "1.4.8.2",
+    version = "1.4.9",
     description = "TorRunner is designed to facilitate the deployment of Tor hidden services.",
     long_description = long_description,
     long_description_content_type = 'text/markdown',
@@ -23,7 +23,7 @@ setup(
     url = 'https://github.com/tn3w/TorRunner',
     packages = find_packages(),
     package_data={
-        'TorRunner': ['vanguards/*']
+        'TorRunner': ['vanguards/*', 'lib/*']
     },
     install_requires = [],
     entry_points = {

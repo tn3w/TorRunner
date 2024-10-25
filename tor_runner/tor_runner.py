@@ -29,7 +29,8 @@ import urllib.request
 from itertools import chain
 from sys import argv as ARGUMENTS
 from multiprocessing import Process
-from typing import Optional, Tuple, Union, List, Any
+from contextlib import contextmanager
+from typing import Optional, Tuple, Union, Generator, List, Any
 
 try:
     from .common import (
@@ -716,6 +717,7 @@ class TorRunner:
 
         Args:
             listeners (list): A list of tuples specifying the listeners for the Tor service.
+            socks_port (Optional[Union[int, bool]]): The port for SOCKS proxy.
             quite (bool): If True, suppresses progress output. Defaults to False.
             wait (bool): If True, waits for the Tor process to
                 finish before returning. Defaults to True.
@@ -855,10 +857,10 @@ class TorRunner:
                 return
 
             try:
-                from vanguards import Vanguards
+                from libraries.vanguards import Vanguards
             except ImportError:
                 try:
-                    from .vanguards import Vanguards
+                    from .libraries.vanguards import Vanguards
                 except ImportError as exc:
                     if not quite:
                         print("\n[Vanguards Error] Error occurred while importing Vanguards:", exc)
@@ -882,6 +884,28 @@ class TorRunner:
 
                 tor_process.vanguard_process = vanguard_process
                 new_tor_processes.append(tor_process)
+
+
+    @contextmanager
+    def context_run(self, listeners: list, socks_port: Optional[Union[int, bool]] = None,
+                    quite: bool = False) -> Generator:
+        """
+        Context manager to start and stop Tor process with specified listeners.
+
+        Args:
+            listeners (list): A list of tuples specifying the listeners for the Tor service.
+            socks_port (Optional[Union[int, bool]]): The port for SOCKS proxy.
+            quite (bool): If True, suppresses progress output. Defaults to False.
+
+        Yields:
+            None
+        """
+
+        try:
+            self.run(listeners, socks_port, quite, False)
+            yield
+        finally:
+            self.exit()
 
 
     def flask_run(self, app, host: str = "127.0.0.1", port: int = 5000,

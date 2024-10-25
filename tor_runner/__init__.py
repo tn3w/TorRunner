@@ -8,5 +8,6 @@ Source: https://github.com/tn3w/TorRunner
 """
 
 from .tor_runner import TorRunner
+from .tor_proxy import TorProxy
 
-__all__ = ["TorRunner"]
+__all__ = ["TorRunner", "TorProxy"]

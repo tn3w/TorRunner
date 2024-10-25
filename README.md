@@ -12,7 +12,7 @@ This project uses the Vanguards implementation of [mikeperry-tor](https://github
 - [ ] Auto Bridge Updates
 - [ ] Multi Threads
 - [ ] Tor version check & auto update
-- [ ] Proxy mode<br>
+- [x] Proxy mode [only for urllib implemented]<br>
 ❌ (not feasible) Tor preinstalled
 
 ## Examples
