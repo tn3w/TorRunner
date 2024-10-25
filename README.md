@@ -31,8 +31,6 @@ python3 -m venv .venv; source .venv/bin/activate; pip install tor-runner
 ```
 
 ## Examples
-Note: TorRunner uses only built-in Python libraries, if you want to use vanguards, install stem with `pip install stem` after you have created a virtual environment: `python3 -m venv .venv` and activated: `source .venv/bin/activate`.
-
 ### TorProxy
 TorRunner has the ability to route your urllib requests through Tor.
 
