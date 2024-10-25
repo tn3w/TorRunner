@@ -5,7 +5,7 @@
 <br>
 
 ## Special thanks
-This project uses the Vanguards implementation of [mikeperry-tor](https://github.com/mikeperry-tor) at [mikeperry-tor/vanguards](https://github.com/mikeperry-tor/vanguards) under MIT license found [here](https://github.com/mikeperry-tor/vanguards/blob/master/LICENSE).
+This project uses the Vanguards implementation of [mikeperry-tor](https://github.com/mikeperry-tor) at [mikeperry-tor/vanguards](https://github.com/mikeperry-tor/vanguards) under MIT license found [here](https://github.com/mikeperry-tor/vanguards/blob/master/LICENSE), the socks implementation of [Anorov](https://github.com/Anorov) at [Anorov/PySocks](https://github.com/Anorov/PySocks) under BSD License found [here](https://github.com/Anorov/PySocks/blob/master/LICENSE) and the win_inet_pton implementation of [hickeroar](https://github.com/hickeroar) at [hickeroar/win_inet_pton](https://github.com/hickeroar/win_inet_pton) under Public Domain License found [here](https://github.com/hickeroar/win_inet_pton/blob/master/LICENSE).
 
 ## 📌 Planned for the future
 - [x] Vanguards
@@ -15,8 +15,62 @@ This project uses the Vanguards implementation of [mikeperry-tor](https://github
 - [x] Proxy mode [only for urllib implemented]<br>
 ❌ (not feasible) Tor preinstalled
 
+## 🚀 Installation
+Make sure you have the latest version of Python and Pip installed.
+
+1. Create an virtual env with `python3 -m venv .venv` and `source .venv/bin/activate`
+2. Install TorRunner with pip `pip install tor-runner` or manually via `git clone https://github.com/tn3w/TorRunner` or download the zip [here](https://github.com/tn3w/TorRunner/archive/refs/heads/master.zip).
+3. If you installed it manually, run `pip install .` in the downloaded and extracted folder.
+4. [Optional] Install stem with `pip install stem` if you want to use Vanguards.
+
+<br>
+
+Quick command:
+```bash
+python3 -m venv .venv; source .venv/bin/activate; pip install tor-runner
+```
+
 ## Examples
 Note: TorRunner uses only built-in Python libraries, if you want to use vanguards, install stem with `pip install stem` after you have created a virtual environment: `python3 -m venv .venv` and activated: `source .venv/bin/activate`.
+
+### TorProxy
+TorRunner has the ability to route your urllib requests through Tor.
+
+Example:
+```python
+import time
+import urllib.request
+import urllib.error
+from tor_runner import TorProxy
+
+proxy = TorProxy()
+proxy.start()
+print("SocksPort running on 127.0.0.1:" + str(proxy.socks_port))
+
+with proxy.urllib():
+    start_time = time.time()
+    url = "https://check.torproject.org/?lang=en_US"
+
+    try:
+        response = urllib.request.urlopen(url)
+        content = response.read().decode('utf-8')
+
+        if "Congratulations" in content:
+            print("Connected to Tor!")
+
+        elif "Sorry" in content:
+            print("Not connected to Tor")
+
+    except urllib.error.URLError as e:
+        print(f"Error connecting to {url}: {e}")
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+
+    first_byte_time = time.time() - start_time
+    print(f"Time to first byte: {first_byte_time:.4f} seconds")
+```
+
+---
 
 ### On the command line
 ```bash
