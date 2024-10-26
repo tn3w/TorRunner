@@ -25,9 +25,14 @@ Make sure you have the latest version of Python and Pip installed.
 
 <br>
 
-Quick command:
+Quick command (Linux / macOS):
 ```bash
-python3 -m venv .venv; source .venv/bin/activate; pip install tor-runner
+python -m venv .venv; source .venv/bin/activate; pip install tor-runner
+```
+
+Quick command (Windows):
+```bash
+python -m venv .venv & .venv/Scripts/activate.bat & pip install tor-runner
 ```
 
 ## Examples
