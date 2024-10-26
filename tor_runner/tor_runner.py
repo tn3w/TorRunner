@@ -7,7 +7,8 @@ installations, downloading and extracting the necessary files, managing pluggabl
 transports, and setting up bridges. The module also facilitates running web applications
 like Flask and Sanic on the Tor network, allowing for hidden services and secure connections.
 
-License: Made available under the GPL-3.0 license.
+License: GNU General Public License v3.0
+    https://github.com/tn3w/TorRunner/blob/master/LICENSE
 Source: https://github.com/tn3w/TorRunner
 """
 
@@ -858,12 +859,13 @@ class TorRunner:
 
             try:
                 from libraries.vanguards import Vanguards
-            except ImportError:
+            except ImportError as exc1:
                 try:
                     from .libraries.vanguards import Vanguards
-                except ImportError as exc:
+                except ImportError as exc2:
                     if not quite:
-                        print("\n[Vanguards Error] Error occurred while importing Vanguards:", exc)
+                        print("\n[Vanguards Error] Error occurred while importing Vanguards:\n",
+                              exc1 + "\n", exc2)
 
                     return
 

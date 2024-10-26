@@ -5,7 +5,8 @@ This module provides a collection of utility functions and classes that facilita
 various common operations, particularly in the context of system and file handling,
 network requests, and progress tracking.
 
-License: Made available under the GPL-3.0 license.
+License: GNU General Public License v3.0
+    https://github.com/tn3w/TorRunner/blob/master/LICENSE
 Source: https://github.com/tn3w/TorRunner
 """
 

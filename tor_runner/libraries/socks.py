@@ -7,7 +7,7 @@ versions. By using SOCKS, applications can establish anonymous or secure
 connections via proxies. The library facilitates the integration of proxy
 functionality in network applications.
 
-License: BSD License https://github.com/Anorov/PySocks/blob/master/LICENSE
+License: BSD https://github.com/Anorov/PySocks/blob/master/LICENSE
 Source: PySocks PyPi Package https://github.com/Anorov/PySocks
 """
 

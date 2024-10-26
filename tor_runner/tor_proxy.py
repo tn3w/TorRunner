@@ -1,9 +1,10 @@
 """
 tor_proxy.py
 
-Establishes a Tor socks connection for proxy use.
+Sets up a Tor SOCKS connection for proxy usage.
 
-License: Made available under the GPL-3.0 license.
+License: GNU General Public License v3.0
+    https://github.com/tn3w/TorRunner/blob/master/LICENSE
 Source: https://github.com/tn3w/TorRunner
 """
 

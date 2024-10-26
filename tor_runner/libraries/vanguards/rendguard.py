@@ -1,3 +1,16 @@
+"""
+rendguard.py
+
+The Vanguards Onion Service Addon
+
+This is an edited version of Vanguards that has been edited for use with TorRunner,
+changes have not been verified for integrity by The Tor Project, Inc. or any other entity.
+
+License: MIT https://github.com/mikeperry-tor/vanguards/blob/master/LICENSE
+Source: https://github.com/mikeperry-tor/vanguards
+"""
+
+
 from . import control
 from .logger import plog
 
