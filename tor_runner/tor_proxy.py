@@ -1,3 +1,12 @@
+"""
+tor_proxy.py
+
+Establishes a Tor socks connection for proxy use.
+
+License: Made available under the GPL-3.0 license.
+Source: https://github.com/tn3w/TorRunner
+"""
+
 import socket
 from contextlib import contextmanager
 from typing import Optional, Generator, List
