@@ -6,7 +6,7 @@ between IPv4 and IPv6 addresses in the Windows Internet area. These functions
 have been specially developed for use with the WinINet API. The module
 facilitates the handling of network addresses in Windows applications.
 
-License: Public Domain License: https://github.com/hickeroar/win_inet_pton/blob/master/LICENSE
+License: Public Domain License https://github.com/hickeroar/win_inet_pton/blob/master/LICENSE
 Source: win_inet_pton PyPi Package https://github.com/hickeroar/win_inet_pton
 """
 
