@@ -7,6 +7,9 @@ versions. By using SOCKS, applications can establish anonymous or secure
 connections via proxies. The library facilitates the integration of proxy
 functionality in network applications.
 
+This is an edited version of PySocks that has been edited for use with TorRunner,
+changes have not been verified for integrity by the owner or any other entity.
+
 License: BSD https://github.com/Anorov/PySocks/blob/master/LICENSE
 Source: PySocks PyPi Package https://github.com/Anorov/PySocks
 """
@@ -338,7 +341,9 @@ class socksocket(_BaseSocket):
             d = file.read(count - len(data))
             if not d:
                 raise GeneralProxyError("Connection closed unexpectedly")
+
             data += d
+
         return data
 
     def settimeout(self, timeout):
@@ -355,8 +360,9 @@ class socksocket(_BaseSocket):
     def setblocking(self, v):
         if v:
             self.settimeout(None)
-        else:
-            self.settimeout(0.0)
+            return
+
+        self.settimeout(0.0)
 
     def set_proxy(self, proxy_type=None, addr=None, port=None, rdns=True,
                   username=None, password=None):
@@ -385,6 +391,7 @@ class socksocket(_BaseSocket):
     def setproxy(self, *args, **kwargs):
         if "proxytype" in kwargs:
             kwargs["proxy_type"] = kwargs.pop("proxytype")
+
         return self.set_proxy(*args, **kwargs)
 
     def bind(self, *pos, **kw):
@@ -399,9 +406,10 @@ class socksocket(_BaseSocket):
 
         if self._proxyconn:
             raise socket.error(EINVAL, "Socket already bound to an address")
+
         if proxy_type != SOCKS5:
-            msg = "UDP only supported by SOCKS5 proxy type"
-            raise socket.error(EOPNOTSUPP, msg)
+            raise socket.error(EOPNOTSUPP, "UDP only supported by SOCKS5 proxy type")
+
         super(socksocket, self).bind(*pos, **kw)
 
         _, port = self.getsockname()
@@ -423,6 +431,7 @@ class socksocket(_BaseSocket):
     def sendto(self, bytes, *args, **kwargs):
         if self.type != socket.SOCK_DGRAM:
             return super(socksocket, self).sendto(bytes, *args, **kwargs)
+
         if not self._proxyconn:
             self.bind(("", 0))
 
@@ -436,15 +445,16 @@ class socksocket(_BaseSocket):
         header.write(STANDALONE)
         self._write_SOCKS5_address(address, header)
 
-        sent = super(socksocket, self).send(header.getvalue() + bytes, *flags,
-                                            **kwargs)
+        sent = super(socksocket, self).send(
+            header.getvalue() + bytes, *flags, **kwargs
+        )
         return sent - header.tell()
 
     def send(self, bytes, flags=0, **kwargs):
         if self.type == socket.SOCK_DGRAM:
             return self.sendto(bytes, flags, self.proxy_peername, **kwargs)
-        else:
-            return super(socksocket, self).send(bytes, flags, **kwargs)
+        
+        return super(socksocket, self).send(bytes, flags, **kwargs)
 
     def recvfrom(self, bufsize, flags=0):
         if self.type != socket.SOCK_DGRAM:
@@ -457,6 +467,7 @@ class socksocket(_BaseSocket):
         frag = buf.read(1)
         if ord(frag):
             raise NotImplementedError("Received UDP packet fragment")
+
         fromhost, fromport = self._read_SOCKS5_address(buf)
 
         if self.proxy_peername:
@@ -473,6 +484,7 @@ class socksocket(_BaseSocket):
     def close(self):
         if self._proxyconn:
             self._proxyconn.close()
+
         return super(socksocket, self).close()
 
     def get_proxy_sockname(self):
@@ -574,6 +586,7 @@ class socksocket(_BaseSocket):
 
             super(socksocket, self).settimeout(self._timeout)
             return (resolved, bnd)
+
         finally:
             reader.close()
             writer.close()
@@ -757,8 +770,7 @@ class socksocket(_BaseSocket):
         """
 
         if len(dest_pair) != 2 or dest_pair[0].startswith("["):
-            raise socket.error("PySocks doesn't support IPv6: %s"
-                               % str(dest_pair))
+            raise socket.error(f"PySocks doesn't support IPv6: {str(dest_pair)}")
 
         dest_addr, dest_port = dest_pair
 
@@ -845,4 +857,5 @@ class socksocket(_BaseSocket):
         proxy_port = proxy_port or DEFAULT_PORTS.get(proxy_type)
         if not proxy_port:
             raise GeneralProxyError("Invalid proxy type")
+
         return proxy_addr, proxy_port
