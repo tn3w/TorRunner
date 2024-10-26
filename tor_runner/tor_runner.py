@@ -598,7 +598,7 @@ class TorRunner:
         TorRunner.verify_or_install_tor()
         TorRunner.set_ld_library_path_environ()
 
-        commands = [TOR_FILE_PATHS["exe"]]
+        commands = [TOR_FILE_PATHS["exe"], "--quiet"]
         commands.extend(args)
 
         tor_process = subprocess.Popen(

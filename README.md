@@ -32,7 +32,7 @@ python -m venv .venv; source .venv/bin/activate; pip install tor-runner
 
 Quick command (Windows):
 ```bash
-python -m venv .venv & .venv/Scripts/activate.bat & pip install tor-runner
+python -m venv .venv; .venv/Scripts/activate.bat; pip install tor-runner
 ```
 
 ## Examples
