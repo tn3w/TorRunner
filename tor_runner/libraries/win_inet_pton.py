@@ -6,6 +6,9 @@ between IPv4 and IPv6 addresses in the Windows Internet area. These functions
 have been specially developed for use with the WinINet API. The module
 facilitates the handling of network addresses in Windows applications.
 
+This is an edited version of win_inet_pton that has been edited for use with TorRunner,
+changes have not been verified for integrity by the owner or any other entity.
+
 License: Public Domain https://github.com/hickeroar/win_inet_pton/blob/master/LICENSE
 Source: win_inet_pton PyPi Package https://github.com/hickeroar/win_inet_pton
 """
@@ -55,20 +58,25 @@ def inject_into_socket():
         if ret == 1:
             if address_family == socket.AF_INET:
                 return ctypes.string_at(addr.S_addr, 4)
-            else:
-                return ctypes.string_at(addr.Byte, 16)
-        elif ret == 0:
+
+            return ctypes.string_at(addr.Byte, 16)
+
+        if ret == 0:
             raise socket.error("illegal IP address string passed to inet_pton")
+
+        raise get_socket_error()
+
+    def get_socket_error():
+        err = WSAGetLastError()
+        if err == 10047:
+            e = socket.error("unknown address family")
+        elif err == 10014:
+            e = OSError("bad address")
         else:
-            err = WSAGetLastError()
-            if err == 10047:
-                e = socket.error("unknown address family")
-            elif err == 10014:
-                e = OSError("bad address")
-            else:
-                e = OSError("unknown error from inet_ntop")
-            e.errno = err
-            raise e
+            e = OSError("unknown error from inet_ntop")
+
+        e.errno = err
+        return e
 
     def inet_ntop(address_family, packed_ip):
         if address_family == socket.AF_INET:
@@ -100,12 +108,7 @@ def inject_into_socket():
             ctypes.sizeof(buffer),
         )
         if ret is None:
-            err = WSAGetLastError()
-            if err == 10047:
-                e = ValueError("unknown address family")
-            else:
-                e = OSError("unknown error from inet_ntop")
-            e.errno = err
+            raise get_socket_error()
 
         return ctypes.wstring_at(buffer, buffer_len).rstrip("\x00")
 

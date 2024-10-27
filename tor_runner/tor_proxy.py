@@ -65,6 +65,9 @@ class TorProxy:
             None
         """
 
+        if self.socks_port is not None:
+            return
+
         socks_port = self.tor_runner.get_ports()[1]
         self.tor_runner.run([], socks_port, quite, False)
         self.socks_port = socks_port
@@ -98,27 +101,60 @@ class TorProxy:
 
 
     @contextmanager
-    def urllib(self, quite: bool = True) -> Generator[None, None, None]:
+    def urllib(self, timeout: int = 3, quiet: bool = True) -> Generator:
         """
         Context manager to set up SOCKS proxy for urllib requests.
 
         Args:
-            quite (bool): If True, runs Tor in quiet mode with minimal output.
+            timeout (int): 
+            quiet (bool): If True, runs Tor in quiet mode with minimal output.
 
         Yields:
             None
         """
 
-        if self.socks_port is None:
-            self.start(quite)
-
+        self.start(quiet)
         original_socket = socket.socket
 
         try:
-            socket.setdefaulttimeout(3)
+            socket.setdefaulttimeout(timeout)
             socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, "127.0.0.1", self.socks_port)
             socket.socket = socks.socksocket
             yield
+
         finally:
             socks.setdefaultproxy(None)
             socket.socket = original_socket
+
+
+    @contextmanager
+    def requests(self, timeout: int = 3, quiet: bool = True) \
+            -> Generator["requests.Session", None, None]:
+        """
+        Context manager to set up SOCKS proxy for requests library.
+
+        Args:
+            timeout (int): Timeout for the request.
+            quiet (bool): If True, runs the proxy in quiet mode with minimal output.
+
+        Yields:
+            requests.Session: A session object configured with the SOCKS proxy.
+        """
+
+        self.start(quiet)
+        original_socket = socket.socket
+
+        import requests
+        session = requests.Session()
+
+        try:
+            socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, "127.0.0.1", self.socks_port)
+            socket.socket = socks.socksocket
+
+            session.timeout = timeout
+            yield session
+
+        finally:
+            socks.setdefaultproxy(None)
+            socket.socket = original_socket
+            session.close()

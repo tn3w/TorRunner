@@ -556,12 +556,12 @@ class TorRunner:
 
 
     @staticmethod
-    def verify_or_install_tor(quite: bool = True) -> None:
+    def verify_or_install_tor(quiet: bool = True) -> None:
         """
         Verifies if Tor is installed and installs it if it is not.
 
         Args:
-            quite (bool): If True, suppresses progress output. Defaults to False.
+            quiet (bool): If True, suppresses progress output. Defaults to False.
 
         Returns:
             None
@@ -570,11 +570,11 @@ class TorRunner:
         if verify_tor_installation():
             return
 
-        if not quite:
+        if not quiet:
             print("Getting Tor download url...")
         download_url = get_tor_download_url(OPERATING_SYSTEM, ARCHITECTURE)
 
-        if not quite:
+        if not quiet:
             print("Installing Tor...")
         error_message = install_tor(download_url)
 
@@ -712,14 +712,14 @@ class TorRunner:
 
 
     def run(self, listeners: list, socks_port: Optional[Union[int, bool]] = None,
-            quite: bool = False, wait: bool = True) -> None:
+            quiet: bool = False, wait: bool = True) -> None:
         """
         Runs the Tor process with the specified listeners and configuration.
 
         Args:
             listeners (list): A list of tuples specifying the listeners for the Tor service.
             socks_port (Optional[Union[int, bool]]): The port for SOCKS proxy.
-            quite (bool): If True, suppresses progress output. Defaults to False.
+            quiet (bool): If True, suppresses progress output. Defaults to False.
             wait (bool): If True, waits for the Tor process to
                 finish before returning. Defaults to True.
 
@@ -727,7 +727,7 @@ class TorRunner:
             None
         """
 
-        self.verify_or_install_tor(quite)
+        self.verify_or_install_tor(quiet)
 
         hidden_service_directories = []
         if len(listeners) > 0:
@@ -779,7 +779,7 @@ class TorRunner:
             self.tor_processes.append(tor_process_data)
 
             progress = None
-            if not quite:
+            if not quiet:
                 progress = Progress("Tor establishes a secure connection...", 100)
 
             stdout = ""
@@ -801,7 +801,7 @@ class TorRunner:
 
                 if output:
                     percentage = get_percentage(output)
-                    if not quite:
+                    if not quiet:
                         progress.messages.append(output)
                         if percentage is not None:
                             progress.update(percentage)
@@ -813,7 +813,7 @@ class TorRunner:
                         break
 
             else:
-                if not quite:
+                if not quiet:
                     print("\n\n[Error] A timeout occurred while starting Tor.",
                           "Use bridges with `-b <BRIDGE>` or the default bridges with",
                           "`--default-bridge-type obfs4`.")
@@ -824,7 +824,7 @@ class TorRunner:
             return_code = tor_process.returncode
             if isinstance(return_code, int):
                 if return_code > 0:
-                    if not quite:
+                    if not quiet:
                         print("\n[Error] Error occurred while starting",
                               "Tor: (Code", str(return_code) + ")")
                         print(stdout)
@@ -838,7 +838,7 @@ class TorRunner:
         if not started_sucessfully:
             return
 
-        if not quite and len(hidden_service_directories) > 0:
+        if not quiet and len(hidden_service_directories) > 0:
             joined_hostnames = ", ".join(find_hostnames(hidden_service_directories))
             print("Running on", joined_hostnames, end = "")
 
@@ -863,13 +863,13 @@ class TorRunner:
                 try:
                     from .libraries.vanguards import Vanguards
                 except ImportError as exc2:
-                    if not quite:
+                    if not quiet:
                         print("\n[Vanguards Error] Error occurred while importing Vanguards:\n",
                               exc1 + "\n", exc2)
 
                     return
 
-            if not quite:
+            if not quiet:
                 print("\nTrying to start Vanguards...")
 
             new_tor_processes = []
@@ -890,21 +890,21 @@ class TorRunner:
 
     @contextmanager
     def context_run(self, listeners: list, socks_port: Optional[Union[int, bool]] = None,
-                    quite: bool = False) -> Generator:
+                    quiet: bool = False) -> Generator:
         """
         Context manager to start and stop Tor process with specified listeners.
 
         Args:
             listeners (list): A list of tuples specifying the listeners for the Tor service.
             socks_port (Optional[Union[int, bool]]): The port for SOCKS proxy.
-            quite (bool): If True, suppresses progress output. Defaults to False.
+            quiet (bool): If True, suppresses progress output. Defaults to False.
 
         Yields:
             None
         """
 
         try:
-            self.run(listeners, socks_port, quite, False)
+            self.run(listeners, socks_port, quiet, False)
             yield
         finally:
             self.exit()
