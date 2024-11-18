@@ -97,7 +97,7 @@ class TorConfiguration:
         def get_new_path() -> str:
             while True:
                 random_path = path.join(WORK_DIRECTORY_PATH, generate_secure_random_string(16))
-                if not os.path.exists(random_path):
+                if not path.exists(random_path):
                     return random_path
 
         # FIXME: Rotating torrc and data directory name length
