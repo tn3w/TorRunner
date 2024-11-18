@@ -205,59 +205,6 @@ class TorRunner:
     TorRunner is a class that runs Tor based on the operating system and architecture.
     """
 
-
-    @staticmethod
-    def set_ld_library_path_environ() -> None:
-        """
-        Sets the 'LD_LIBRARY_PATH' environment variable
-        to include the path to the Tor library.
-
-        Returns:
-            None
-        """
-
-        if OPERATING_SYSTEM != 'linux':
-            return
-
-        current_ld_library_path = os.environ.get('LD_LIBRARY_PATH', '')
-        path_to_extend = os.path.join(TOR_DIRECTORY_PATH, 'tor')
-
-        if path_to_extend in current_ld_library_path:
-            return
-
-        new_ld_library_path = f'{current_ld_library_path}:{path_to_extend}' \
-            if current_ld_library_path else path_to_extend
-
-        os.environ['LD_LIBRARY_PATH'] = new_ld_library_path
-
-
-    @staticmethod
-    def verify_or_install_tor(quiet: bool = True) -> None:
-        """
-        Verifies if Tor is installed and installs it if it is not.
-
-        Args:
-            quiet (bool): If True, suppresses progress output. Defaults to False.
-
-        Returns:
-            None
-        """
-
-        if verify_tor_installation():
-            return
-
-        if not quiet:
-            print("Getting Tor download url...")
-        download_url = get_tor_download_url(OPERATING_SYSTEM, ARCHITECTURE)
-
-        if not quiet:
-            print("Installing Tor...")
-        error_message = install_tor(download_url)
-
-        if error_message is not None:
-            raise OSError(error_message + " " + ERROR_MESSAGE)
-
-
     @staticmethod
     def direct(*args, wait: bool = True) -> None:
         """
