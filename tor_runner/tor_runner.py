@@ -12,401 +12,128 @@ License: GNU General Public License v3.0
 Source: https://github.com/tn3w/TorRunner
 """
 
-import re
-import os
+from os import mkdir, listdir, path
+
 import io
 import sys
-import socket
 import atexit
 import select
-import hashlib
-import secrets
 import argparse
-import binascii
 import subprocess
-import http.client
-import urllib.error
-import urllib.request
 from itertools import chain
 from sys import argv as ARGUMENTS
 from multiprocessing import Process
 from contextlib import contextmanager
-from typing import Optional, Tuple, Union, Generator, List, Any
+from typing import Final, Optional, Tuple, Union, Generator, List, Dict
 
 try:
-    from .common import (
-        TOR_DIRECTORY_PATH, IMPORTANT_FILE_KEYS, TOR_FILE_PATHS, IS_WINDOWS,
-        OPERATING_SYSTEM, ARCHITECTURE, ERROR_MESSAGE, TOR_ARCHIVE_FILE_PATH,
-        DEBUG_DIRECTORY_PATH, PLUGGABLE_TRANSPORTS_DIRECTORY_PATH,
-        DEFAULT_BRIDGES, DATA_DIRECTORY_PATH, PLUGGABLE_TRANSPORTS,
-        CURRENT_DIRECTORY_PATH, HIDDEN_SERVICE_DIRECTORY_PATH, Progress, DirectoryLock,
-        extract_links, download_file, extract_tar, delete, find_available_port,
-        find_hostnames, configuration_to_str, generate_secure_random_string, write
-    )
+    from utils.tor import hash_control_password, get_bridge_type
+    from utils.utils import find_available_port, generate_secure_random_string
+    from utils.files import DirectoryLock, WORK_DIRECTORY_PATH, TOR_FILE_PATHS, delete
 except ImportError:
-    from common import (
-        TOR_DIRECTORY_PATH, IMPORTANT_FILE_KEYS, TOR_FILE_PATHS, IS_WINDOWS,
-        OPERATING_SYSTEM, ARCHITECTURE, ERROR_MESSAGE, TOR_ARCHIVE_FILE_PATH,
-        DEBUG_DIRECTORY_PATH, PLUGGABLE_TRANSPORTS_DIRECTORY_PATH,
-        DEFAULT_BRIDGES, DATA_DIRECTORY_PATH, PLUGGABLE_TRANSPORTS,
-        CURRENT_DIRECTORY_PATH, HIDDEN_SERVICE_DIRECTORY_PATH, Progress, DirectoryLock,
-        extract_links, download_file, extract_tar, delete, find_available_port,
-        find_hostnames, configuration_to_str, generate_secure_random_string, write
-    )
+    from .utils.tor import hash_control_password, get_bridge_type
+    from .utils.utils import find_available_port, generate_secure_random_string
+    from .utils.files import DirectoryLock, WORK_DIRECTORY_PATH, TOR_FILE_PATHS, delete
+
+
+PLUGGABLE_TRANSPORTS: Final[dict] = {
+    "lyrebird": ["meek_lite", "obfs2", "obfs3", "obfs4", "scramblesuit", "webtunnel"],
+    "snowflake": ["snowflake"],
+    "conjure": ["conjure"]
+}
 
 
 TOR_TIMEOUT = 120 # Seconds
 
 
-def parse_listener(listener_str: str) -> List[Tuple[int, int]]:
-    """
-    Parses a string of listener data into a list of tuples.
+class TorConfiguration:
 
-    Args:
-        listener_str (str): A string containing listener coordinates in the format
-                            "x1,y1 x2,y2 ...".
 
-    Returns:
-        List[Tuple[int, int]]: A list of tuples, where each tuple contains two integers
-                               representing the coordinates of a listener. If the input
-                               string is not in the expected format or cannot be parsed,
-                               an empty list is returned.
-    """
+    @staticmethod
+    def configuration_to_str(configurations: list) -> str:
+        """
+        Convert a list of configuration key-value pairs into a formatted string.
 
-    try:
-        listeners = listener_str.split(" ")
-        listener_tuples = [
-            tuple(map(int, listener.split(',')))
-            for listener in listeners
+        Parameters:
+            configurations (list): A tuple containing key-value pairs, where each pair 
+                is expected to be a tuple of (key, value).
+
+        Returns:
+            str: A formatted string representation of the configuration, with each 
+                key-value pair on a new line.
+        """
+
+        configuration_str = ""
+        for pair in configurations:
+            key, value = pair
+
+            if not isinstance(value, str):
+                try:
+                    value = str(value)
+                except ValueError:
+                    continue
+
+            configuration_str += key + " " + value + "\n"
+
+        return configuration_str
+
+
+    def __init__(self, hidden_service_directories: Dict[str, list], bridges: list,
+                 control_port: Optional[int] = None, control_password: Optional[str] = None,
+                 socks_port: Optional[int] = None, vanguard_threads: Optional[int] = None):
+
+        self.hidden_service_directories = hidden_service_directories
+        self.bridges = bridges
+
+        self.socks_port = socks_port or None
+        self.control_port = control_port or find_available_port(9051, exclude_ports = [socks_port])
+
+        control_password = control_password or generate_secure_random_string(32)
+        self.hashed_control_password = hash_control_password(control_password)
+        self.control_password = control_password
+
+        self.vanguard_threads = vanguard_threads or 0
+
+        def get_new_path() -> str:
+            while True:
+                random_path = path.join(WORK_DIRECTORY_PATH, generate_secure_random_string(16))
+                if not os.path.exists(random_path):
+                    return random_path
+
+        # FIXME: Rotating torrc and data directory name length
+        data_directory_path = get_new_path()
+        mkdir(data_directory_path)
+
+        self.data_directory_path = data_directory_path
+        self.torrc_file_path = get_new_path()
+
+
+    def __str__(self) -> str:
+        configuration = [
+            ("GeoIPFile", TOR_FILE_PATHS["geoip"]),
+            ("GeoIPv6File", TOR_FILE_PATHS["geoip6"]),
+            ("DataDirectory", self.data_directory_path),
+            ("ControlPort", self.control_port),
+            ("SocksPort", self.socks_port if self.socks_port else 0),
+            ("HashedControlPassword", self.hashed_control_password),
+            ("Log", "notice stdout"),
+            ("ClientUseIPv6", 1),
+            ("AvoidDiskWrites", 1),
+            ("ClientOnly", 1),
+            ("ClientPreferIPv6ORPort", 1),
+            ("UseBridges", 1 if self.bridges else 0)
         ]
 
-        return listener_tuples
+        required_pluggable_transports = []
+        for bridge in self.bridges:
+            required_pluggable_transports.append(get_bridge_type(bridge))
+            configuration.append(("Bridge", bridge))
+
+        for pluggable_transport, bridge_types in PLUGGABLE_TRANSPORTS.items():
+            for bridge_type in bridge_types:
+                if bridge_type not in required_pluggable_transports:
+                    continue
 
-    except ValueError:
-        pass
-
-    return []
-
-
-def parse_vanguards(value: Any) -> int:
-    """
-    Parses a value into an integer.
-
-    Args:
-        value (Any): The value to be parsed into an integer. This can be of any type, including
-                     strings, numbers, or other data types.
-
-    Returns:
-        int: The parsed integer value. If the input value cannot be converted to an integer,
-             returns 0.
-    """
-
-    try:
-        return int(value)
-    except ValueError:
-        pass
-
-    return 0
-
-
-def verify_tor_installation() -> bool:
-    """
-    Verifies the installation of all required Tor files.
-
-    Returns:
-        bool (bool): True if the file installation is correct, False otherwise.
-    """
-
-    if not os.path.isdir(TOR_DIRECTORY_PATH):
-        return False
-
-    for key in IMPORTANT_FILE_KEYS:
-        file_path = TOR_FILE_PATHS[key]
-        if not os.path.isfile(file_path):
-            return False
-
-    return True
-
-
-def hash_tor_password(password: str) -> str:
-    """
-    Hash a password for use with Tor`s control port authentication.
-
-    Args:
-        password (str): The password to be hashed.
-
-    Returns:
-        str: The hashed password in a format suitable for Tor.
-    """
-
-    indicator_char = "`"
-    salt = secrets.token_bytes(8) + indicator_char.encode("utf-8")
-    indicator_value = ord(indicator_char)
-
-    expected_bias = 6
-    count = (16 + (indicator_value & 15)) << ((indicator_value >> 4) + expected_bias)
-
-    sha1_hash = hashlib.sha1()
-    salted_password = salt[:8] + password.encode("utf-8")
-    password_length = len(salted_password)
-
-    while count > 0:
-        if count <= password_length:
-            sha1_hash.update(salted_password[:count])
-            break
-
-        sha1_hash.update(salted_password)
-        count -= password_length
-
-    hashed_password = sha1_hash.digest()
-
-    salt_hex = binascii.b2a_hex(salt[:8]).upper().decode("utf-8")
-    indicator_hex = binascii.b2a_hex(indicator_char.encode("utf-8")).upper().decode("utf-8")
-    hashed_password_hex = binascii.b2a_hex(hashed_password).upper().decode("utf-8")
-
-    return "16:" + salt_hex + indicator_hex + hashed_password_hex
-
-
-def get_tor_download_url(operating_system: str, architecture: str) -> Optional[str]:
-    """
-    Retrieves the download URL for the Tor Expert Bundle based on the operating system
-    and system architecture provided.
-
-    Args:
-        operating_system (str): The operating system for which the Tor
-            package is required (e.g., 'windows', 'linux', 'mac').
-        architecture (str): The architecture of the system (e.g., 'x86_64', 'i686').
-
-    Returns:
-        Optional[str]: The download URL for the matching
-            Tor Expert Bundle, or None if no matching URL is found.
-    """
-
-    def matches(url: str) -> bool:
-        return "archive.torproject.org/tor-package-archive/torbrowser" in url \
-                and operating_system.lower() in url and "tor-expert-bundle" in url \
-                    and architecture.lower() in url and not url.endswith(".asc")
-
-    download_page_url = "https://www.torproject.org/download/tor/"
-
-    req = urllib.request.Request(
-        download_page_url, headers = {"Range": "bytes=0-", "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-            " (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.3"
-        }
-    )
-    try:
-        with urllib.request.urlopen(req, timeout = 3) as response:
-            html = ""
-            while True:
-                chunk = response.read(128).decode("utf-8", errors = "ignore")
-                if not chunk:
-                    break
-
-                html += chunk
-
-                urls = extract_links(html)
-                for url in urls:
-                    if matches(url):
-                        return url
-
-    except (urllib.error.HTTPError, urllib.error.URLError, socket.timeout,
-            FileNotFoundError, PermissionError, http.client.RemoteDisconnected,
-            UnicodeEncodeError, TimeoutError, http.client.IncompleteRead,
-            http.client.HTTPException, ConnectionResetError, ConnectionAbortedError,
-            ConnectionRefusedError, ConnectionError):
-        pass
-
-    return None
-
-
-def install_tor(download_url: str) -> Optional[str]:
-    """
-    Downloads and installs the Tor Expert Bundle from the provided URL.
-
-    Args:
-        download_url (str): The URL to download the Tor package from.
-
-    Returns:
-        None: This function installs the Tor package to the appropriate directory,
-            removing temporary files and ensuring the installation is verified.
-    """
-
-    is_downloaded = download_file(download_url, TOR_ARCHIVE_FILE_PATH)
-    if not is_downloaded:
-        return "Tor download failed."
-
-    extracted_successfully = extract_tar(TOR_ARCHIVE_FILE_PATH, TOR_DIRECTORY_PATH)
-
-    delete(TOR_ARCHIVE_FILE_PATH)
-    delete(DEBUG_DIRECTORY_PATH)
-
-    if IS_WINDOWS:
-        delete(os.path.join(TOR_DIRECTORY_PATH, "tor", "tor-gencert.exe"))
-
-    for file_name in os.listdir(PLUGGABLE_TRANSPORTS_DIRECTORY_PATH):
-        normalized_file_name = file_name.strip().lower()
-        if not normalized_file_name.startswith(("readme", "pt_config")):
-            continue
-
-        full_path = os.path.join(PLUGGABLE_TRANSPORTS_DIRECTORY_PATH, file_name)
-        delete(full_path)
-
-    if not extracted_successfully:
-        return "Tor could not be extracted successfully."
-
-    valid_installation = verify_tor_installation()
-    if not valid_installation:
-        return "An error occured while installing Tor."
-
-    return None
-
-
-def get_bridge_type(bridge_string: str) -> str:
-    """
-    Function for getting bridge type.
-
-    Args:
-        bridge_string (str): The full string of the bridge.
-
-    Returns:
-        str: The type of the bridge.
-    """
-
-    pattern = (r'^(.*?)\s*(?:\d{1,3}\.){3}\d{1,3}|'
-               r'\[(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\]')
-
-    match = re.match(pattern, bridge_string)
-    if match:
-        bridge_type = match.group(1)
-        if bridge_type:
-            return bridge_type.strip()
-
-    for bridge_type in ["obfs4", "snowflake", "webtunnel", "meek_lite"]:
-        if bridge_type.lower() in bridge_string.lower():
-            return bridge_type
-
-    return "vanilla"
-
-
-def get_default_bridges(bridge_type: str = "obfs4", quantity: int = 3,
-                        default_bridge_type: Optional[str] = "obfs4") -> Optional[List[str]]:
-    """
-    Returns bridges of a specific `brige_type`.
-
-    Args:
-        bridge_type (str): The type of bridges wanted. Possible: `vanilla`, `obfs4`,
-            `snowflake`, `webtunnel`, `meek_azure` or `meek_lite`.
-        quantity (int): The number of bridges to be returned.
-        default_bridge_type (str): Optional bridge type if no bridges of the given type exist.
-
-    Returns:
-        bridges (Union[List[str], Any]): Bridges from type `bridge_type` to number
-            of `quantity` or default bridges of `default_bridge_type` or None.
-    """
-
-    bridges = DEFAULT_BRIDGES.get(bridge_type, None)
-    if bridges is None:
-        bridges = DEFAULT_BRIDGES.get(default_bridge_type, None)
-
-    if isinstance(bridges, list) and len(bridges) >= quantity:
-        bridges = bridges[:quantity]
-
-    return bridges
-
-
-def create_tor_data(random_name: str) -> str:
-    """
-    Creates a new directory for Tor data with a randomly generated name.
-
-    Returns:
-        str: The path to the newly created Tor data directory.
-    """
-
-    tor_data_directory_path = os.path.join(DATA_DIRECTORY_PATH, f"{random_name}.data")
-
-    if not os.path.exists(tor_data_directory_path):
-        os.makedirs(tor_data_directory_path, exist_ok = True)
-
-    return tor_data_directory_path
-
-
-def create_temp_torrc(content: str, random_name: str) -> str:
-    """
-    Creates a temporary Tor configuration file with a randomly generated name.
-
-    Args:
-        content (str): The content to be written to the Tor configuration file.
-
-    Returns:
-        str: The path to the newly created Tor configuration file.
-    """
-
-    torrc_path = os.path.join(DATA_DIRECTORY_PATH, f"{random_name}.torrc")
-
-    write(torrc_path, content)
-    return torrc_path
-
-
-def get_configuration(control_port: int, tor_password: str,
-                      hidden_service_directories: list, listeners: list,
-                      tor_data_directory_path: str, bridges: Optional[list] = None,
-                      default_bridge_type: Optional[str] = None,
-                      bridge_quantity: Optional[int] = None,
-                      socks_port: Optional[int] = None) -> tuple:
-    """
-    Generate a configuration for a Tor client with specified parameters.
-
-    Parameters:
-        control_port (int): The port number for the Tor control interface.
-        tor_password (str): The password to authenticate the Tor control interface.
-        hidden_service_directories (list): A list of directories for hidden services.
-        listeners (list): A list of tuples specifying the port mappings for hidden services.
-                          Each tuple should contain (to_port, from_port).
-        tor_data_directory_path (str): The file path to the Tor client's data directory.
-        bridges (list): A list of bridges to be used by the Tor client.
-        default_bridge_type (Optional[str]): The type of default bridge to
-            use if no bridges are provided.
-        bridge_quantity (Optional[int]): The number of default bridges to add if needed.
-        socks_port (Optional[int]): The port number for the SOCKS proxy.
-
-    Returns:
-        tuple: A configuration dictionary containing the necessary settings for the Tor client.
-    """
-
-    if not isinstance(bridges, list):
-        bridges = []
-
-    quantity = 3 if bridge_quantity is None else bridge_quantity
-    if default_bridge_type is not None:
-        quantity = max(0, quantity - len(bridges))
-        bridges.extend(get_default_bridges(default_bridge_type, quantity))
-
-    hashed_tor_password = hash_tor_password(tor_password)
-
-    configuration = [
-        ("GeoIPFile", TOR_FILE_PATHS["geoip4"]),
-        ("GeoIPv6File", TOR_FILE_PATHS["geoip6"]),
-        ("DataDirectory", tor_data_directory_path),
-        ("ControlPort", control_port),
-        ("SocksPort", 0 if socks_port is None else socks_port),
-        ("CookieAuthentication", 0),
-        ("HashedControlPassword", hashed_tor_password),
-        ("Log", "notice stdout"),
-        ("ClientUseIPv6", 1),
-        ("AvoidDiskWrites", 1),
-        ("ClientOnly", 1),
-        ("ClientPreferIPv6ORPort", 1),
-        ("UseBridges", 1 if len(bridges) > 0 else 0)
-    ]
-
-    required_pts = []
-    for bridge in bridges:
-        required_pts.append(get_bridge_type(bridge))
-
-    for pluggable_transport, bridge_types in PLUGGABLE_TRANSPORTS.items():
-        for bridge_type in bridge_types:
-            if bridge_type in required_pts:
                 transport = ','.join(bridge_types) + " exec " + \
                     TOR_FILE_PATHS.get(pluggable_transport)
 
@@ -419,41 +146,14 @@ def get_configuration(control_port: int, tor_password: str,
                 configuration.append(("ClientTransportPlugin", transport))
                 break
 
-    for bridge in bridges:
-        configuration.append(("Bridge", bridge))
+        for hidden_service_dir, listeners in self.hidden_service_directories.items():
+            configuration.append(("HiddenServiceDir", hidden_service_dir))
+            for to_port, from_port in listeners:
+                configuration.append(
+                    ("HiddenServicePort", str(to_port) + " 127.0.0.1:" + str(from_port))
+                )
 
-    for hidden_service_dir in hidden_service_directories:
-        configuration.append(("HiddenServiceDir", hidden_service_dir))
-        for listener in listeners:
-            to_port, from_port = listener
-            configuration.append(
-                ("HiddenServicePort", str(to_port) + " 127.0.0.1:" + str(from_port))
-            )
-
-    return configuration
-
-
-def get_percentage(output: str) -> Optional[int]:
-    """
-    Extracts the bootstrap percentage from a Tor startup output line.
-
-    Args:
-        output (str): The output string from the Tor startup process, which may contain
-                      a line indicating the bootstrap progress.
-
-    Returns:
-        Optional[int]: The bootstrap percentage as an integer if found; otherwise, None.
-    """
-
-    match = re.search(r'Bootstrapped (\d+)%', output)
-
-    if match:
-        percent = match.group(1)
-
-        if percent.isdigit():
-            return int(percent)
-
-    return None
+        return self.configuration_to_str(configuration)
 
 
 class TorProcess:
@@ -465,69 +165,45 @@ class TorProcess:
     """
 
 
-    def __init__(self, tor_process: subprocess.Popen, control_port: str, password: str,
-                 data_directory_path: str, directory_lock_stream: io.TextIOWrapper,
-                 torrc_file_path: str, socks_port: Optional[int] = None) -> None:
+    def __init__(self, configuration: TorConfiguration,
+                 tor_process: subprocess.Popen, directory_lock_stream: io.TextIOWrapper) -> None:
         """
         Initializes a tor process data structure.
 
         Args:
             tor_process (subprocess.Popen): The subprocess instance representing
                 the running Tor process.
-            control_port (str): The port used for controlling the Tor
-                process via the control protocol.
-            password (str): The password for authenticating with the Tor control port.
-            data_directory_path (str): The file path to the directory where Tor stores its data.
-            torrc_file_path (str): The file path to the Tor configuration file (torrc).
-            socks_port (Optional[int]): The port used for SOCKS connections.
-                If not specified, defaults to None.
 
         Returns:
             None: none
         """
 
+        # FIXME: Update docstring
+
+        self.configuration = configuration
         self.tor_process = tor_process
-        self.control_port = control_port
-        self.password = password
-        self.data_directory_path = data_directory_path
         self.directory_lock_stream = directory_lock_stream
-        self.torrc_file_path = torrc_file_path
-        self.socks_port = socks_port
         self.vanguard_process: Optional[Process] = None
+
+
+def clean() -> None:
+    for file_or_directory_name in listdir(WORK_DIRECTORY_PATH):
+        if not len(file_or_directory_name) == 16:
+            continue
+
+        file_or_directory_path = path.join(WORK_DIRECTORY_PATH, file_or_directory_name)
+        # FIXME: torrc locking
+        if path.isdir(file_or_directory_path) and DirectoryLock(file_or_directory_path).locked:
+            continue
+
+        # FIXME: secure delete with SecureShredder - Scary!
+        delete(file_or_directory_path)
 
 
 class TorRunner:
     """
     TorRunner is a class that runs Tor based on the operating system and architecture.
     """
-
-
-    @staticmethod
-    def clean() -> None:
-        """
-        Cleans up the data directory by removing specific files and directories.
-
-        Args:
-            None
-
-        Returns:
-            None
-        """
-
-        for file_or_directory_name in os.listdir(DATA_DIRECTORY_PATH):
-            file_or_directory_path = os.path.join(DATA_DIRECTORY_PATH, file_or_directory_name)
-            if not file_or_directory_name.endswith(".data") or\
-                not os.path.isdir(file_or_directory_path):
-
-                continue
-
-            if DirectoryLock(file_or_directory_path).locked:
-                continue
-
-            delete(file_or_directory_path)
-
-            random_name = file_or_directory_name.split(".data")[0]
-            delete(os.path.join(DATA_DIRECTORY_PATH, random_name + ".torrc"))
 
 
     @staticmethod
@@ -967,6 +643,15 @@ def run_main() -> None:
     The main function called at start
     """
 
+    print("""
+░▀▀█▀▀░▄▀▀▄░█▀▀▄░▒█▀▀▄░█░▒█░█▀▀▄░█▀▀▄░█▀▀░█▀▀▄
+░░▒█░░░█░░█░█▄▄▀░▒█▄▄▀░█░▒█░█░▒█░█░▒█░█▀▀░█▄▄▀
+░░▒█░░░░▀▀░░▀░▀▀░▒█░▒█░░▀▀▀░▀░░▀░▀░░▀░▀▀▀░▀░▀▀
+
+Author: TN3W
+GitHub: https://github.com/tn3w/TorRunner
+""")
+
     TorRunner.clean()
 
     if "--delete" in ARGUMENTS:
@@ -991,10 +676,10 @@ def run_main() -> None:
         )
     )
     parser.add_argument(
-        "-p", "--port",
+        "-i", "--instances",
         type = int,
-        default = None,
-        help = "HTTP port for the hidden service to listen on."
+        default = 1,
+        help = "How many times Tor should start. (default: 1)"
     )
     parser.add_argument(
         "-l", "--listener",
@@ -1004,10 +689,22 @@ def run_main() -> None:
         help = "List of listeners in the format 'tor_port,listen_port'."
     )
     parser.add_argument(
-        "-t", "--threads",
+        "-s", "--socks-port",
         type = int,
-        default = 1,
-        help = "How many times Tor should start. (default: 1)"
+        default = None,
+        help = "SOCKS port for Tor connections."
+    )
+    parser.add_argument(
+        "-c", "--control-port",
+        type = int,
+        default = None,
+        help = "Control port for Tor."
+    )
+    parser.add_argument(
+        "-p", "--control-password",
+        type = str,
+        default = None,
+        help = "Control password for Tor."
     )
     parser.add_argument(
         "-d", "--hidden-service-dirs",
@@ -1022,12 +719,6 @@ def run_main() -> None:
         help = "List of bridges to use for connecting to the Tor network."
     )
     parser.add_argument(
-        "-s", "--socks-port",
-        type = int,
-        default = None,
-        help = "SOCKS port for Tor connections."
-    )
-    parser.add_argument(
         "-v", "--vanguards",
         nargs = '?',
         const = 1,
@@ -1037,34 +728,32 @@ def run_main() -> None:
                 " against guard discovery and related traffic analysis attacks.")
     )
     parser.add_argument(
-        "--bridge-quantity",
-        type = int,
-        default = None,
-        help = "Number of bridges to use for connecting to the Tor network."
-    )
-    parser.add_argument(
-        "--default-bridge-type",
+        "-t", "--default-bridge-type",
         type = str,
         default = None,
         help = "Default bridge type to use when connecting to Tor."
     )
     parser.add_argument(
-        "--direct",
+        "-e", "--execute",
         action = "store_true",
         help = "Executes your command directly via Tor."
     )
     parser.add_argument(
-        "--delete",
+        "-r", "--remove",
         action = "store_true",
-        help = "Delete all data associated with tor_runner."
+        help = "Remove all data associated with tor_runner."
     )
     parser.add_argument(
-        "--quiet",
+        "-q", "--quiet",
         action = "store_true",
         help = "Run the script in quiet mode with no output."
     )
 
     args = parser.parse_args()
+
+    print(args)
+
+    return
 
     tor_runner = TorRunner(
         hs_dirs = getattr(args, "hidden_service_dirs", None),

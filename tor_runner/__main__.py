@@ -9,9 +9,9 @@ Source: https://github.com/tn3w/TorRunner
 """
 
 try:
-    from .tor_runner import main
+    from .cli import main
 except ImportError:
-    from tor_runner import main
+    from cli import main
 
 if __name__ == "__main__":
     main()
