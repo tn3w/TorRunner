@@ -238,6 +238,10 @@ def execute_main() -> None:
 
     args = parser.parse_args()
 
+    if len(argv) == 1:
+        parser.print_help()
+        return
+
     remove_iterations = getattr(args, "remove", None)
     if remove_iterations != 0:
         proceed = input("All data will be permanently removed. Do you wish to continue? [Y/n] ")
