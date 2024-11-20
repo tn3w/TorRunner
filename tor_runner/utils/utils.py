@@ -1,11 +1,10 @@
 from os import path
-from re import search
 from io import BytesIO
 from uuid import getnode
 from secrets import choice
 from functools import lru_cache
-from re import IGNORECASE, findall
 from platform import system, machine
+from re import IGNORECASE, search, findall
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 from tarfile import TarError, open as tar_open

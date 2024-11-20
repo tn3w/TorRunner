@@ -4,14 +4,9 @@ from argparse import ArgumentParser
 from typing import Optional, Final, Tuple, List, Any
 from sys import exit as sys_exit, argv, stdout, stderr
 
-try:
-    from utils.tor import install_tor, set_ld_library_path_environ
-    from utils.utils import OPERATING_SYSTEM, ARCHITECTURE
-    from utils.files import WORK_DIRECTORY_PATH, TOR_FILE_PATHS, SecureShredder
-except ImportError:
-    from .utils.tor import install_tor, set_ld_library_path_environ
-    from .utils.utils import OPERATING_SYSTEM, ARCHITECTURE
-    from .utils.files import WORK_DIRECTORY_PATH, TOR_FILE_PATHS, SecureShredder
+from utils.tor import install_tor, set_ld_library_path_environ
+from utils.utils import OPERATING_SYSTEM, ARCHITECTURE
+from utils.files import WORK_DIRECTORY_PATH, TOR_FILE_PATHS, SecureShredder
 
 
 LOGO: Final[str] =\

@@ -9,17 +9,11 @@ from typing import Final, Optional, List, Dict
 from http.client import RemoteDisconnected, IncompleteRead, HTTPException
 
 try:
+    from utils import REQUEST_HEADERS, extract_links, download_file, extract_tar
+    from files import TAR_FILE_PATHS, TOR_FILE_PATHS, TOR_BUNDLE_DIRECTORY_PATH, read, write
+except ImportError:
     from utils.utils import REQUEST_HEADERS, extract_links, download_file, extract_tar
     from utils.files import TAR_FILE_PATHS, TOR_FILE_PATHS, TOR_BUNDLE_DIRECTORY_PATH, read, write
-except ImportError:
-    try:
-        from .utils import REQUEST_HEADERS, extract_links, download_file, extract_tar
-        from .utils.files import (
-            TAR_FILE_PATHS, TOR_FILE_PATHS, TOR_BUNDLE_DIRECTORY_PATH, read, write
-        )
-    except ImportError:
-        from utils import REQUEST_HEADERS, extract_links, download_file, extract_tar
-        from files import TAR_FILE_PATHS, TOR_FILE_PATHS, TOR_BUNDLE_DIRECTORY_PATH, read, write
 
 
 DEFAULT_BRIDGES: Final[Dict[str, List[str]]] = {
