@@ -5,8 +5,8 @@ from typing import Optional, Final, Tuple, List, Any
 from sys import exit as sys_exit, argv, stdout, stderr
 
 from utils.tor import install_tor, set_ld_library_path_environ
-from utils.utils import OPERATING_SYSTEM, ARCHITECTURE
 from utils.files import WORK_DIRECTORY_PATH, TOR_FILE_PATHS, SecureShredder
+from utils.utils import OPERATING_SYSTEM, ARCHITECTURE, QUIET, set_global_quiet
 
 
 LOGO: Final[str] =\
@@ -131,6 +131,7 @@ def before_tor_start() -> None:
 
 def execute_main() -> None:
     quiet = "-q" in argv or "--quiet" in argv
+    set_global_quiet(quiet)
 
     if not quiet:
         print(LOGO)
@@ -270,7 +271,8 @@ def main():
     try:
         execute_main()
     except KeyboardInterrupt:
-        print("\nReceived CTRL+C command. Exiting now.")
+        if not QUIET:
+            print("\nReceived CTRL+C command. Exiting now.")
     finally:
         sys_exit(0)
 

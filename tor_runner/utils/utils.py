@@ -13,6 +13,14 @@ from socket import socket, AF_INET, SOCK_STREAM, SOL_SOCKET, SO_REUSEADDR
 from http.client import RemoteDisconnected, IncompleteRead, HTTPException
 
 
+QUIET: bool = False
+
+def set_global_quiet(quiet: bool) -> None:
+    global QUIET
+
+    QUIET = quiet
+
+
 REQUEST_HEADERS: Final[dict] = {
     "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
                    " (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.3")
