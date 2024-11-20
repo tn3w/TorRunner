@@ -9,10 +9,10 @@ from typing import Final, Optional, List, Dict
 from http.client import RemoteDisconnected, IncompleteRead, HTTPException
 
 try:
-    from utils.utils import REQUEST_HEADERS, extract_links, download_file, extract_tar
+    from utils.utils import REQUEST_HEADERS, extract_links, download_file, extract_tar, is_quiet
     from utils.files import TAR_FILE_PATHS, TOR_FILE_PATHS, TOR_BUNDLE_DIRECTORY_PATH, read, write
 except ImportError:
-    from utils import REQUEST_HEADERS, extract_links, download_file, extract_tar
+    from utils import REQUEST_HEADERS, extract_links, download_file, extract_tar, is_quiet
     from files import TAR_FILE_PATHS, TOR_FILE_PATHS, TOR_BUNDLE_DIRECTORY_PATH, read, write
 
 
@@ -295,20 +295,40 @@ def install_tor(operating_system: str, architecture: str) -> bool:
     if is_tor_installation_verified():
         return True
 
+    quiet = is_quiet()
+
+    if not quiet:
+        print("Receiving Tor download url...")
+
     download_url = get_tor_download_url(operating_system, architecture)
     if download_url is None:
-        print("Can not get Tor download url")
+        if not quiet:
+            print("Failed.\n")
+
         return False
+
+    if not quiet:
+        print("Downloading Tor bundle...")
 
     archive_data = download_file(download_url)
     if archive_data is None:
-        print("Tor can not be downloaded")
+        if not quiet:
+            print("Failed.\n")
+
         return False
+
+    if not quiet:
+        print("Extracting Tor bundle...")
 
     extracted_successfully = extract_tar(archive_data, TAR_FILE_PATHS)
     if not extracted_successfully:
-        print("Tar could not be extracted")
+        if not quiet:
+            print("Failed.\n")
+
         return False
+
+    if not quiet:
+        print("Cleaning up...")
 
     for file_path in [TOR_FILE_PATHS["geoip"], TOR_FILE_PATHS["geoip6"]]:
         file_content = read(file_path)
@@ -323,4 +343,5 @@ def install_tor(operating_system: str, architecture: str) -> bool:
         )
         write(new_file_content, file_path, True)
 
+    print()
     return True

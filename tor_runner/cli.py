@@ -123,10 +123,26 @@ def parse_bridges(bridges: Optional[list]) -> Tuple[int, List[str]]:
     return bridge_quantity, bridge_strings
 
 
-def before_tor_start() -> None:
-    install_tor(OPERATING_SYSTEM, ARCHITECTURE)
+def before_tor_start() -> bool:
+    is_installed = install_tor(OPERATING_SYSTEM, ARCHITECTURE)
+    if not is_installed:
+        return False
+
     if OPERATING_SYSTEM == "linux":
         set_ld_library_path_environ()
+
+    return True
+
+
+def get_remove_value():
+    for i, arg in enumerate(argv):
+        if arg in ["-r", "--remove"]:
+            if i + 1 < len(argv) and argv[i + 1].isdigit():
+                return int(argv[i + 1])
+
+            return 3
+
+    return None
 
 
 def execute_main() -> None:
@@ -136,10 +152,38 @@ def execute_main() -> None:
     if not quiet:
         print(LOGO)
 
+    # Kill switch
+    remove_iterations = get_remove_value()
+    if remove_iterations is not None:
+        if "-y" not in argv and not quiet:
+            proceed = input("All data will be permanently removed. Do you wish to continue? [Y/n] ")
+            print()
+            if proceed.strip().lower() != "y":
+                print("Aborting.")
+                return
+
+        if not quiet:
+            print("All the data will now be removed...")
+
+        if path.isdir(WORK_DIRECTORY_PATH):
+            SecureShredder.directory(WORK_DIRECTORY_PATH, remove_iterations)
+
+        if not quiet:
+            print("Done.")
+
+        return
+
+    # Direct execution
     if "-e" in argv or "--execute" in argv:
         arguments = argv[1:]
 
-        before_tor_start()
+        is_installed = before_tor_start()
+        if not is_installed:
+            if not is_quiet:
+                print("Aborting.")
+
+            return
+
         commands = [TOR_FILE_PATHS["tor"]]
         commands.extend([
             argument
@@ -243,21 +287,6 @@ def execute_main() -> None:
 
     if len(argv) == 1:
         parser.print_help()
-        return
-
-    remove_iterations = getattr(args, "remove", None)
-    if remove_iterations != 0:
-        proceed = input("All data will be permanently removed. Do you wish to continue? [Y/n] ")
-        print()
-        if proceed.strip().lower() != "y":
-            print("Aborting.")
-            return
-
-        print("All the data will now be removed...")
-        if path.isdir(WORK_DIRECTORY_PATH):
-            SecureShredder.directory(WORK_DIRECTORY_PATH, remove_iterations)
-
-        print("Done.")
         return
 
     bridge_quantity, bridges = parse_bridges(getattr(args, "bridges", None))
