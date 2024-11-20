@@ -94,16 +94,16 @@ def parse_remove(value: Any) -> int:
 
 def parse_bridges(bridges: Optional[list]) -> Tuple[int, List[str]]:
     """
-    Parses a list of bridges to extract an integer representing the first numeric value 
-    and a list of non-numeric strings.
+    Parses a list of bridges to extract the first numeric value (representing the number 
+    of bridges) and a list of non-numeric strings (describing the bridge details).
 
     Args:
-        bridges (Optional[list]): A list of items to parse. Each item can be of any type.
+        bridges (Optional[list]): A list of items to parse. Items can be strings or other types.
+            If None or an empty list is provided, defaults will be returned.
 
     Returns:
-        Tuple[int, List[str]]: 
-            - An integer representing the first numeric value found in the list (default is 0).
-            - A list of non-numeric strings.
+        Tuple[int, List[str]]: integer representing the first numeric value found and a list of
+            non-numeric strings from the input list, which are interpreted as bridge details.
     """
 
     if not bridges:
@@ -124,6 +124,15 @@ def parse_bridges(bridges: Optional[list]) -> Tuple[int, List[str]]:
 
 
 def before_tor_start() -> bool:
+    """
+    Ensures that Tor is installed and performs any
+    necessary setup for the system environment.
+
+    Returns:
+        bool: True if Tor is installed and the environment
+            is properly set up, False otherwise.
+    """
+
     is_installed = install_tor(OPERATING_SYSTEM, ARCHITECTURE)
     if not is_installed:
         return False
@@ -135,6 +144,15 @@ def before_tor_start() -> bool:
 
 
 def get_remove_value():
+    """
+    Checks command-line arguments for a value indicating
+    the number of iterations to remove data.
+
+    Returns:
+        int or None: The number of iterations for data removal,
+            or None if no such request was made.
+    """
+
     for i, arg in enumerate(argv):
         if arg in ["-r", "--remove"]:
             if i + 1 < len(argv) and argv[i + 1].isdigit():
@@ -146,6 +164,21 @@ def get_remove_value():
 
 
 def execute_main() -> None:
+    """
+    The main function that handles the execution of the script, including parsing arguments,
+    setting quiet mode, handling data removal, and starting Tor processes or commands.
+
+    Based on the parsed command-line arguments, this function performs different tasks:
+    - Handles quiet mode
+    - Handles the removal of data if requested
+    - Executes commands via Tor if requested
+    - Starts and configures Tor instances with optional
+      listeners, control ports, and other settings.
+
+    Returns:
+        None
+    """
+
     quiet = "-q" in argv or "--quiet" in argv
     set_global_quiet(quiet)
 
@@ -169,7 +202,7 @@ def execute_main() -> None:
             SecureShredder.directory(WORK_DIRECTORY_PATH, remove_iterations)
 
         if not quiet:
-            print("Done.")
+            print("\nDone.")
 
         return
 
@@ -302,6 +335,7 @@ def main():
     except KeyboardInterrupt:
         if not is_quiet():
             print("\nReceived CTRL+C command. Exiting now.")
+
     finally:
         sys_exit(0)
 
