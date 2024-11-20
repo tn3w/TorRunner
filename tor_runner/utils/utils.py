@@ -21,6 +21,10 @@ def set_global_quiet(quiet: bool) -> None:
     QUIET = quiet
 
 
+def is_quiet() -> bool:
+    return QUIET
+
+
 REQUEST_HEADERS: Final[dict] = {
     "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
                    " (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.3")

@@ -6,7 +6,7 @@ from sys import exit as sys_exit, argv, stdout, stderr
 
 from utils.tor import install_tor, set_ld_library_path_environ
 from utils.files import WORK_DIRECTORY_PATH, TOR_FILE_PATHS, SecureShredder
-from utils.utils import OPERATING_SYSTEM, ARCHITECTURE, QUIET, set_global_quiet
+from utils.utils import OPERATING_SYSTEM, ARCHITECTURE, set_global_quiet, is_quiet
 
 
 LOGO: Final[str] =\
@@ -271,7 +271,7 @@ def main():
     try:
         execute_main()
     except KeyboardInterrupt:
-        if not QUIET:
+        if not is_quiet():
             print("\nReceived CTRL+C command. Exiting now.")
     finally:
         sys_exit(0)
