@@ -4,7 +4,6 @@ from errno import ESRCH
 from hashlib import sha256
 from threading import Lock
 from io import TextIOWrapper
-from platform import system, machine
 from contextlib import contextmanager
 from shutil import copy2, move, rmtree
 from secrets import token_bytes, token_hex
@@ -13,12 +12,9 @@ from os import listdir, remove, kill, getpid, walk, unlink, fsync, mkdir, path
 from typing import Final, Callable, Tuple, Optional, Generator, List, Dict, Any
 
 try:
-    from utils.utils import IS_WINDOWS, IS_ANDROID, get_mac_address
+    from utils.utils import IS_WINDOWS, OPERATING_SYSTEM, ARCHITECTURE, IS_ANDROID, get_mac_address
 except ImportError:
-    try:
-        from .utils import IS_WINDOWS, IS_ANDROID, get_mac_address
-    except ImportError:
-        from utils import IS_WINDOWS, IS_ANDROID, get_mac_address
+    from utils import IS_WINDOWS, OPERATING_SYSTEM, ARCHITECTURE, IS_ANDROID, get_mac_address
 
 if IS_WINDOWS:
     import msvcrt
@@ -121,8 +117,8 @@ def get_work_path(current_dir: str, seed: str = "") -> str:
     """
 
     system_info = (
-        system() +
-        machine() +
+        OPERATING_SYSTEM +
+        ARCHITECTURE +
         (get_mac_address() or "") +
         current_dir +
         seed

@@ -52,7 +52,7 @@ def get_system_information() -> Tuple[Optional[str], Optional[str]]:
     return operating_system, architecture
 
 
-OPERATING_SYSTEM, ARCHITECTURE = "linux", "x86_64"#get_system_information()
+OPERATING_SYSTEM, ARCHITECTURE = get_system_information()
 
 IS_WINDOWS: Final[bool] = OPERATING_SYSTEM == "windows"
 IS_ANDROID: Final[bool] = OPERATING_SYSTEM == "android"
