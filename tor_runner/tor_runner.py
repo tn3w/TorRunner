@@ -26,14 +26,9 @@ from multiprocessing import Process
 from contextlib import contextmanager
 from typing import Final, Optional, Tuple, Union, Generator, List, Dict
 
-try:
-    from utils.tor import hash_control_password, get_bridge_type
-    from utils.utils import find_available_port, generate_secure_random_string
-    from utils.files import DirectoryLock, WORK_DIRECTORY_PATH, TOR_FILE_PATHS, delete
-except ImportError:
-    from .utils.tor import hash_control_password, get_bridge_type
-    from .utils.utils import find_available_port, generate_secure_random_string
-    from .utils.files import DirectoryLock, WORK_DIRECTORY_PATH, TOR_FILE_PATHS, delete
+from utils.tor import hash_control_password, get_bridge_type
+from utils.utils import find_available_port, generate_secure_random_string
+from utils.files import DirectoryLock, WORK_DIRECTORY_PATH, TOR_FILE_PATHS, delete
 
 
 PLUGGABLE_TRANSPORTS: Final[dict] = {
