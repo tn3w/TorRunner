@@ -152,10 +152,10 @@ TOR_BUNDLE_DIRECTORY_PATH: Final[str] = get_work_path(WORK_DIRECTORY_PATH, "bund
 RAW_FILE_PATHS: Final[list] = [
     ("data/geoip", get_work_path(TOR_BUNDLE_DIRECTORY_PATH, "geoip")),
     ("data/geoip6", get_work_path(TOR_BUNDLE_DIRECTORY_PATH, "geoip6")),
-    ("tor/libcrypto*", path.join(TOR_BUNDLE_DIRECTORY_PATH, "libcrypto.so.3")),
-    ("tor/libssl*", path.join(TOR_BUNDLE_DIRECTORY_PATH, "libssl.so.3")),
-    ("tor/libstdc*", path.join(TOR_BUNDLE_DIRECTORY_PATH, "libstdc++.so.6")),
-    ("tor/libevent-*", path.join(TOR_BUNDLE_DIRECTORY_PATH, "libevent-2.1.7.dylib")),
+    #("tor/libcrypto*", path.join(TOR_BUNDLE_DIRECTORY_PATH, "libcrypto.so.3")),
+    #("tor/libssl*", path.join(TOR_BUNDLE_DIRECTORY_PATH, "libssl.so.3")),
+    #("tor/libstdc*", path.join(TOR_BUNDLE_DIRECTORY_PATH, "libstdc++.so.6")),
+    #("tor/libevent-*", path.join(TOR_BUNDLE_DIRECTORY_PATH, "libevent-2.1.7.dylib")),
     ("tor/pluggable_transports/conjure-client" + EXTENSION, \
         get_work_path(TOR_BUNDLE_DIRECTORY_PATH, "conjure") + EXTENSION),
     ("tor/pluggable_transports/lyrebird" + EXTENSION, \

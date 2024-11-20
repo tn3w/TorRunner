@@ -1,17 +1,17 @@
 from os import path
-from sys import argv
-from sys import exit as sys_exit
+from subprocess import Popen
 from argparse import ArgumentParser
 from typing import Optional, Final, Tuple, List, Any
+from sys import exit as sys_exit, argv, stdout, stderr
 
 try:
-    from utils.tor import install_tor
+    from utils.tor import install_tor, set_ld_library_path_environ
     from utils.utils import OPERATING_SYSTEM, ARCHITECTURE
-    from utils.files import WORK_DIRECTORY_PATH, SecureShredder
+    from utils.files import WORK_DIRECTORY_PATH, TOR_FILE_PATHS, SecureShredder
 except ImportError:
-    from .utils.tor import install_tor
+    from .utils.tor import install_tor, set_ld_library_path_environ
     from .utils.utils import OPERATING_SYSTEM, ARCHITECTURE
-    from .utils.files import WORK_DIRECTORY_PATH, SecureShredder
+    from .utils.files import WORK_DIRECTORY_PATH, TOR_FILE_PATHS, SecureShredder
 
 
 LOGO: Final[str] =\
@@ -128,17 +128,32 @@ def parse_bridges(bridges: Optional[list]) -> Tuple[int, List[str]]:
     return bridge_quantity, bridge_strings
 
 
+def before_tor_start() -> None:
+    install_tor(OPERATING_SYSTEM, ARCHITECTURE)
+    if OPERATING_SYSTEM == "linux":
+        set_ld_library_path_environ()
+
+
 def execute_main() -> None:
     print(LOGO)
 
+    quiet = "-q" in argv or "--quiet" in argv
     if "-e" in argv or "--execute" in argv:
         arguments = argv[1:]
 
-        for argument in ["-e", "--execute"]:
-            try:
-                arguments.remove(argument)
-            except ValueError:
-                pass
+        before_tor_start()
+        commands = [TOR_FILE_PATHS["tor"]]
+        commands.extend([
+            argument
+            for argument in arguments
+            if argument not in ["-e", "--execute", "-q", "--quiet"]
+        ])
+
+        if quiet:
+            commands.append("--quiet")
+
+        with Popen(commands, stdout = stdout, stderr = stderr) as process:
+            process.wait()
 
         return
 
@@ -244,8 +259,6 @@ def execute_main() -> None:
         return
 
     bridge_quantity, bridges = parse_bridges(getattr(args, "bridges", None))
-    print(bridge_quantity, bridges)
-    install_tor(OPERATING_SYSTEM, ARCHITECTURE)
 
 
 def main():

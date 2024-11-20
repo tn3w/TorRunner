@@ -205,32 +205,6 @@ class TorRunner:
     TorRunner is a class that runs Tor based on the operating system and architecture.
     """
 
-    @staticmethod
-    def direct(*args, wait: bool = True) -> None:
-        """
-        Runs the Tor executable with the specified arguments.
-
-        Args:
-            *args: Additional command-line arguments to pass to the Tor executable.
-            wait (bool): If set to True, the method will wait for the Tor process to finish.
-
-        Returns:
-            None
-        """
-
-        TorRunner.verify_or_install_tor()
-        TorRunner.set_ld_library_path_environ()
-
-        commands = [TOR_FILE_PATHS["exe"], "--quiet"]
-        commands.extend(args)
-
-        tor_process = subprocess.Popen(
-            commands, text=True
-        )
-
-        if wait:
-            tor_process.wait()
-
 
     @staticmethod
     def get_ports() -> Tuple[int, int]:
