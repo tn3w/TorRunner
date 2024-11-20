@@ -293,7 +293,6 @@ def install_tor(operating_system: str, architecture: str) -> bool:
     """
 
     if is_tor_installation_verified():
-        print("Installation is verified")
         return True
 
     download_url = get_tor_download_url(operating_system, architecture)
