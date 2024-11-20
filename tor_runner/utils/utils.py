@@ -151,6 +151,25 @@ def extract_links(html: str) -> List[str]:
     return matches
 
 
+def star_match(string: str, rule: str) -> str:
+    if "*" not in rule:
+        return string == rule
+
+    parts = rule.split('*')
+
+    if len(parts) == 1:
+        return True
+
+    prefix = parts[0]
+    suffix = parts[-1]
+
+    if not string.startswith(prefix) or not string.endswith(suffix):
+        return False
+
+    middle_string = string[len(prefix):-len(suffix)] if suffix else string[len(prefix):]
+    return len(middle_string) >= 0
+
+
 def extract_tar(archive_data: BytesIO, new_file_paths: dict) -> bool:
     """
     Extracts specific files from a tar archive to specified directories, renaming them as needed.
@@ -168,11 +187,7 @@ def extract_tar(archive_data: BytesIO, new_file_paths: dict) -> bool:
         with tar_open(fileobj = archive_data, mode='r') as tar:
             for member in tar.getmembers():
                 for new_file_name, new_file_path in new_file_paths.items():
-                    if new_file_name != member.name and not \
-                        (new_file_name.endswith("*") and member.name.startswith(
-                            new_file_name.replace("*", ""))
-                        ):
-
+                    if not star_match(member.name, new_file_name):
                         continue
 
                     file_directory_path, file_name = path.split(new_file_path)
