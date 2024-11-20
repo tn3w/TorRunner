@@ -130,9 +130,11 @@ def before_tor_start() -> None:
 
 
 def execute_main() -> None:
-    print(LOGO)
-
     quiet = "-q" in argv or "--quiet" in argv
+
+    if not quiet:
+        print(LOGO)
+
     if "-e" in argv or "--execute" in argv:
         arguments = argv[1:]
 
