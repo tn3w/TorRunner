@@ -83,13 +83,16 @@ def get_current_dir() -> str:
         return current_directory_path
 
     try:
+        __import__("tor_runner")
+
         import pkg_resources
     except ImportError:
         return current_directory_path
 
     try:
         file_path = pkg_resources.resource_filename('tor_runner', '')
-    except (pkg_resources.DistributionNotFound, pkg_resources.UnknownExtra):
+    except (pkg_resources.DistributionNotFound,
+            pkg_resources.UnknownExtra, ModuleNotFoundError):
         return current_directory_path
 
     # Validate the resolved path

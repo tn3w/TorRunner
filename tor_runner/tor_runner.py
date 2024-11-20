@@ -12,9 +12,6 @@ License: GNU General Public License v3.0
 Source: https://github.com/tn3w/TorRunner
 """
 
-print("Error.")
-exit(0)
-
 from os import mkdir, listdir, path
 
 import io
