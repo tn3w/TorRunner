@@ -7,9 +7,9 @@ from io import TextIOWrapper
 from contextlib import contextmanager
 from shutil import copy2, move, rmtree
 from secrets import token_bytes, token_hex
-from concurrent.futures import ThreadPoolExecutor
-from os import listdir, remove, kill, getpid, walk, unlink, fsync, mkdir, path
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Final, Callable, Tuple, Optional, Generator, List, Dict, Any
+from os import listdir, remove, kill, getpid, walk, unlink, fsync, mkdir, cpu_count, path
 
 try:
     from utils.utils import IS_WINDOWS, OPERATING_SYSTEM, ARCHITECTURE, IS_ANDROID, get_mac_address
@@ -60,6 +60,7 @@ GUTMANN_PATTERNS: Final[List[Callable]] = [
 file_locks: Dict[str, Lock] = {}
 file_cache: Dict[str, Tuple[str, bytes]] = {}
 WRITE_EXECUTOR: Final[ThreadPoolExecutor] = ThreadPoolExecutor()
+SHREDDER_EXECUTOR: Final[ThreadPoolExecutor] = ThreadPoolExecutor(round(cpu_count() / 2))
 
 
 def get_current_dir() -> str:
@@ -636,26 +637,29 @@ class SecureShredder:
 
         file_size = path.getsize(file_path)
 
-        def random_data(file_stream: TextIOWrapper) -> None:
+        def random_data() -> None:
             for _ in range(4):
-                file_stream.write(token_bytes(file_size))
+                with get_write_stream(file_path, True, True, False) as file_stream:
+                    file_stream.write(token_bytes(file_size))
 
-        with get_write_stream(file_path, True, True, False) as file_stream:
-            if file_stream is None or not file_stream.writable():
-                for _ in range(iterations):
-                    # Gutmann patterns
-                    random_data(file_stream)
-                    for pattern_func in GUTMANN_PATTERNS:
-                        file_stream.write(pattern_func(file_size))
-                    random_data(file_stream)
+        for _ in range(iterations):
+            # Gutmann patterns
+            random_data()
+            for pattern_func in GUTMANN_PATTERNS:
+                with get_write_stream(file_path, True, True, False) as file_stream:
+                    file_stream.write(pattern_func(file_size))
 
-                    # DoD 5220.22-M
-                    for pattern_func in DOD_PATTERNS:
-                        file_stream.write(pattern_func(file_size))
+            random_data()
+
+            # DoD 5220.22-M
+            for pattern_func in DOD_PATTERNS:
+                with get_write_stream(file_path, True, True, False) as file_stream:
+                    file_stream.write(pattern_func(file_size))
 
         delete(file_path)
 
         return True
+
 
     @staticmethod
     def directory(directory_path: str, iterations: int = 3) -> bool:
@@ -672,9 +676,18 @@ class SecureShredder:
         """
 
         for dirpath, dirnames, filenames in walk(directory_path, topdown = False):
+            futures = []
             for filename in filenames:
                 file_path = path.join(dirpath, filename)
-                SecureShredder.file(file_path, iterations)
+
+                futures.append(
+                    SHREDDER_EXECUTOR.submit(
+                        SecureShredder.file, file_path, iterations
+                    )
+                )
+
+            for future in as_completed(futures):
+                future.result()
 
             for dirname in dirnames:
                 sub_directory_path = path.join(dirpath, dirname)
