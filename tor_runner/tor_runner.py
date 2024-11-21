@@ -12,23 +12,26 @@ License: GNU General Public License v3.0
 Source: https://github.com/tn3w/TorRunner
 """
 
-from os import mkdir, listdir, path
+from os import mkdir, listdir, path, devnull
 
 import io
 import sys
 import atexit
 import select
 import argparse
-import subprocess
 from itertools import chain
-from sys import argv as ARGUMENTS
+from subprocess import Popen
+from sys import stdout, stderr
 from multiprocessing import Process
 from contextlib import contextmanager
 from typing import Final, Optional, Tuple, Union, Generator, List, Dict
 
-from utils.tor import hash_control_password, get_bridge_type
-from utils.utils import find_available_port, generate_secure_random_string
-from utils.files import DirectoryLock, WORK_DIRECTORY_PATH, TOR_FILE_PATHS, delete
+from utils.files import DirectoryLock, SecureShredder, WORK_DIRECTORY_PATH, TOR_FILE_PATHS, delete
+from utils.tor import hash_control_password, get_bridge_type, install_tor, set_ld_library_path_environ
+from utils.utils import (
+    OPERATING_SYSTEM, ARCHITECTURE,
+    find_available_port, generate_secure_random_string, is_quiet, dummy_context_manager
+)
 
 
 PLUGGABLE_TRANSPORTS: Final[dict] = {
@@ -161,12 +164,12 @@ class TorProcess:
 
 
     def __init__(self, configuration: TorConfiguration,
-                 tor_process: subprocess.Popen, directory_lock_stream: io.TextIOWrapper) -> None:
+                 tor_process: Popen, directory_lock_stream: io.TextIOWrapper) -> None:
         """
         Initializes a tor process data structure.
 
         Args:
-            tor_process (subprocess.Popen): The subprocess instance representing
+            tor_process (Popen): The subprocess instance representing
                 the running Tor process.
 
         Returns:
@@ -201,6 +204,48 @@ class TorRunner:
     """
 
 
+    @staticmethod
+    def remove(iterations: int) -> None:
+        if path.isdir(WORK_DIRECTORY_PATH):
+            SecureShredder.directory(WORK_DIRECTORY_PATH, iterations)
+
+
+    def __init__(self, quiet: bool = False):
+        self.quiet = quiet
+        is_installed = install_tor(OPERATING_SYSTEM, ARCHITECTURE)
+        if not (is_installed and quiet):
+            print("Tor installation failed.")
+
+        self.is_installed = is_installed
+
+        if OPERATING_SYSTEM == "linux":
+            set_ld_library_path_environ()
+
+
+    def execute(self, commands: list[str]) -> None:
+        quiet = is_quiet()
+        if not self.is_installed:
+            if not quiet:
+                print("Aborting.")
+
+            return
+
+        commands = [TOR_FILE_PATHS["tor"]] + commands
+
+        devnull_context = open if quiet else dummy_context_manager
+        with devnull_context(devnull, "w", encoding = "utf-8") as null:
+            with Popen(
+                commands,
+                stdout = null if quiet else stdout,
+                stderr = null if quiet else stderr
+                ) as process:
+
+                process.wait()
+
+        return
+
+
+class DeprecatedTorRunner:
     @staticmethod
     def get_ports() -> Tuple[int, int]:
         """

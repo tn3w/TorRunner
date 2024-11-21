@@ -4,6 +4,7 @@ from uuid import getnode
 from secrets import choice
 from functools import lru_cache
 from platform import system, machine
+from contextlib import contextmanager
 from re import IGNORECASE, search, findall
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
@@ -68,6 +69,29 @@ OPERATING_SYSTEM, ARCHITECTURE = get_system_information()
 
 IS_WINDOWS: Final[bool] = OPERATING_SYSTEM == "windows"
 IS_ANDROID: Final[bool] = OPERATING_SYSTEM == "android"
+
+
+@contextmanager
+def dummy_context_manager(*args, **kwargs):
+    """
+    A dummy context manager that yields control and returns the provided arguments.
+
+    Args:
+        *args: Positional arguments to be captured and returned after the 
+            context block is executed.
+        **kwargs: Keyword arguments to be captured and returned after the 
+            context block is executed.
+
+    Yields:
+        None: Control is yielded to the block of code using the context manager.
+
+    Returns:
+        Tuple: A tuple containing the positional and keyword arguments passed 
+            to the context manager after the context block is executed.
+    """
+
+    yield
+    return args, kwargs
 
 
 @lru_cache()

@@ -8,6 +8,8 @@ from utils.tor import install_tor, set_ld_library_path_environ
 from utils.files import WORK_DIRECTORY_PATH, TOR_FILE_PATHS, SecureShredder
 from utils.utils import OPERATING_SYSTEM, ARCHITECTURE, set_global_quiet, is_quiet
 
+from tor_runner import TorRunner
+
 
 LOGO: Final[str] =\
 """
@@ -198,9 +200,7 @@ def execute_main() -> None:
         if not quiet:
             print("All the data will now be removed...")
 
-        if path.isdir(WORK_DIRECTORY_PATH):
-            SecureShredder.directory(WORK_DIRECTORY_PATH, remove_iterations)
-
+        TorRunner.remove(remove_iterations)
         if not quiet:
             print("\nDone.")
 
@@ -210,26 +210,11 @@ def execute_main() -> None:
     if "-e" in argv or "--execute" in argv:
         arguments = argv[1:]
 
-        is_installed = before_tor_start()
-        if not is_installed:
-            if not is_quiet:
-                print("Aborting.")
-
-            return
-
-        commands = [TOR_FILE_PATHS["tor"]]
-        commands.extend([
+        TorRunner().execute([
             argument
             for argument in arguments
             if argument not in ["-e", "--execute", "-q", "--quiet"]
         ])
-
-        if quiet:
-            commands.append("--quiet")
-
-        with Popen(commands, stdout = stdout, stderr = stderr) as process:
-            process.wait()
-
         return
 
     parser = ArgumentParser(

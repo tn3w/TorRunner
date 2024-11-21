@@ -12,9 +12,15 @@ from typing import Final, Callable, Tuple, Optional, Generator, List, Dict, Any
 from os import listdir, remove, kill, getpid, walk, unlink, fsync, mkdir, cpu_count, path
 
 try:
-    from utils.utils import IS_WINDOWS, OPERATING_SYSTEM, ARCHITECTURE, IS_ANDROID, get_mac_address
+    from utils.utils import (
+        IS_WINDOWS, OPERATING_SYSTEM, ARCHITECTURE, IS_ANDROID,
+        get_mac_address, dummy_context_manager
+    )
 except ImportError:
-    from utils import IS_WINDOWS, OPERATING_SYSTEM, ARCHITECTURE, IS_ANDROID, get_mac_address
+    from utils import (
+        IS_WINDOWS, OPERATING_SYSTEM, ARCHITECTURE, IS_ANDROID,
+        get_mac_address, dummy_context_manager
+    )
 
 if IS_WINDOWS:
     import msvcrt
@@ -193,29 +199,6 @@ def is_directory_empty(directory_path: str) -> bool:
         return True
 
     return len(listdir(directory_path)) == 0
-
-
-@contextmanager
-def dummy_context_manager(*args, **kwargs):
-    """
-    A dummy context manager that yields control and returns the provided arguments.
-
-    Args:
-        *args: Positional arguments to be captured and returned after the 
-            context block is executed.
-        **kwargs: Keyword arguments to be captured and returned after the 
-            context block is executed.
-
-    Yields:
-        None: Control is yielded to the block of code using the context manager.
-
-    Returns:
-        Tuple: A tuple containing the positional and keyword arguments passed 
-            to the context manager after the context block is executed.
-    """
-
-    yield
-    return args, kwargs
 
 
 def get_lock(file_path: str) -> Lock:
