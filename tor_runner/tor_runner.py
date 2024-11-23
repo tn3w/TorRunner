@@ -230,13 +230,12 @@ class TorProcess:
 
 
 class TorRunner:
-    """
-    TorRunner is a class that runs Tor based on the operating system and architecture.
-    """
-
 
     @staticmethod
     def clean() -> None:
+        if not path.isdir(WORK_DIRECTORY_PATH):
+            return
+
         for file_or_directory_name in listdir(WORK_DIRECTORY_PATH):
             if not len(file_or_directory_name) == 16:
                 continue
