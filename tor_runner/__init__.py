@@ -8,7 +8,7 @@ License: GNU General Public License v3.0
 Source: https://github.com/tn3w/TorRunner
 """
 
-from .tor_runner import TorRunner
+from .tor_runner import TorRunner, TorConfiguration
 from .tor_proxy import TorProxy
 
-__all__ = ["TorRunner", "TorProxy"]
+__all__ = ["TorRunner", "TorConfiguration", "TorProxy"]

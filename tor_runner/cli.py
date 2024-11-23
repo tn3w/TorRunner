@@ -5,10 +5,9 @@ from typing import Optional, Final, Tuple, List, Any
 from sys import exit as sys_exit, argv, stdout, stderr
 
 from utils.tor import install_tor, set_ld_library_path_environ
-from utils.files import WORK_DIRECTORY_PATH, TOR_FILE_PATHS, SecureShredder
 from utils.utils import OPERATING_SYSTEM, ARCHITECTURE, set_global_quiet, is_quiet
 
-from tor_runner import TorRunner
+from tor_runner import TorRunner, TorConfiguration
 
 
 LOGO: Final[str] =\
@@ -22,34 +21,19 @@ GitHub: https://github.com/tn3w/TorRunner
 """
 
 
-def parse_listener(listener_str: str) -> List[Tuple[int, int]]:
-    """
-    Parses a string of listener data into a list of tuples.
-
-    Args:
-        listener_str (str): A string containing listener coordinates in the format
-                            "x1,y1 x2,y2 ...".
-
-    Returns:
-        List[Tuple[int, int]]: A list of tuples, where each tuple contains two integers
-                               representing the coordinates of a listener. If the input
-                               string is not in the expected format or cannot be parsed,
-                               an empty list is returned.
-    """
-
+def parse_listeners(listeners_str: str) -> List[Tuple[int, int]]:
     try:
-        listeners = listener_str.split(" ")
-        listener_tuples = [
-            tuple(map(int, listener.split(',')))
+        listeners = listeners_str.split(':')
+        listeners_as_int = [
+            int(listener)
             for listener in listeners
         ]
 
-        return listener_tuples
+        if len(listeners_as_int) == 2:
+            return tuple(listeners_as_int)
 
     except ValueError:
         pass
-
-    return []
 
 
 def parse_vanguards(value: Any) -> int:
@@ -58,11 +42,11 @@ def parse_vanguards(value: Any) -> int:
 
     Args:
         value (Any): The value to be parsed into an integer. This can be of any type, including
-                     strings, numbers, or other data types.
+            strings, numbers, or other data types.
 
     Returns:
         int: The parsed integer value. If the input value cannot be converted to an integer,
-             returns 0.
+            returns 0.
     """
 
     try:
@@ -79,11 +63,11 @@ def parse_remove(value: Any) -> int:
 
     Args:
         value (Any): The value to be parsed into an integer. This can be of any type, including
-                     strings, numbers, or other data types.
+            strings, numbers, or other data types.
 
     Returns:
         int: The parsed integer value. If the input value cannot be converted to an integer,
-             returns 0.
+            returns 0.
     """
 
     try:
@@ -94,22 +78,10 @@ def parse_remove(value: Any) -> int:
     return 0
 
 
-def parse_bridges(bridges: Optional[list]) -> Tuple[int, List[str]]:
-    """
-    Parses a list of bridges to extract the first numeric value (representing the number 
-    of bridges) and a list of non-numeric strings (describing the bridge details).
-
-    Args:
-        bridges (Optional[list]): A list of items to parse. Items can be strings or other types.
-            If None or an empty list is provided, defaults will be returned.
-
-    Returns:
-        Tuple[int, List[str]]: integer representing the first numeric value found and a list of
-            non-numeric strings from the input list, which are interpreted as bridge details.
-    """
+def parse_bridges(bridges: Optional[list]) -> Tuple[List[str], int]:
 
     if not bridges:
-        return 0, []
+        return [], 0
 
     bridge_quantity = next(
         (
@@ -122,7 +94,27 @@ def parse_bridges(bridges: Optional[list]) -> Tuple[int, List[str]]:
         if isinstance(bridge, str) and not bridge.isdigit()
     ]
 
-    return bridge_quantity, bridge_strings
+    return bridge_strings, bridge_quantity
+
+
+def parse_hidden_service_dirs(args: Optional[list] = None) -> dict:
+    if not args:
+        return {}
+
+    hidden_service_directories = {}
+    for value in args:
+        hidden_service_path, ports = value, []
+        if '=' in value:
+            hidden_service_path, mappings = value.split('=', 1)
+
+            ports = []
+            for mapping in mappings.split(';'):
+                if mapping.strip():
+                    ports.append(tuple(map(int, mapping.split(':'))))
+
+        hidden_service_directories[hidden_service_path] = ports
+
+    return hidden_service_directories
 
 
 def before_tor_start() -> bool:
@@ -210,7 +202,7 @@ def execute_main() -> None:
     if "-e" in argv or "--execute" in argv:
         arguments = argv[1:]
 
-        TorRunner().execute([
+        TorRunner(quiet).execute([
             argument
             for argument in arguments
             if argument not in ["-e", "--execute", "-q", "--quiet"]
@@ -231,11 +223,11 @@ def execute_main() -> None:
         help = "How many times Tor should start. (default: 1)"
     )
     parser.add_argument(
-        "-l", "--listener",
-        type = parse_listener,
+        "-l", "--listeners",
+        type = parse_listeners,
         nargs = '*',
         default = [],
-        help = "List of listeners in the format 'tor_port,listen_port'."
+        help = "List of listeners in the format 'tor_port:listen_port'."
     )
     parser.add_argument(
         "-s", "--socks-port",
@@ -268,12 +260,12 @@ def execute_main() -> None:
         help = "List of bridges to use for connecting to the Tor network."
     )
     parser.add_argument(
-        "-v", "--vanguards",
+        "-v", "--vanguard-instances",
         nargs = '?',
         const = 1,
         default = 0,
         type = parse_vanguards,
-        help = ("Enables Vanguards with an optional thread count to protect"
+        help = ("Enables Vanguards with an optional instance count to protect"
                 " against guard discovery and related traffic analysis attacks.")
     )
     parser.add_argument(
@@ -307,7 +299,24 @@ def execute_main() -> None:
         parser.print_help()
         return
 
-    bridge_quantity, bridges = parse_bridges(getattr(args, "bridges", None))
+    hidden_service_directories = parse_hidden_service_dirs(getattr(args, "hidden_service_dirs"))
+    listeners = getattr(args, "listeners")
+    bridges, bridge_quantity = parse_bridges(getattr(args, "bridges"))
+    default_bridge_type = getattr(args, "default_bridge_type")
+    control_port = getattr(args, "control_port")
+    control_password = getattr(args, "control_password")
+    socks_port = getattr(args, "socks_port")
+    vanguard_instances = getattr(args, "vanguard_instances")
+
+    config = TorConfiguration(
+        hidden_service_directories, listeners, bridges,
+        bridge_quantity, default_bridge_type, control_port,
+        control_password, socks_port, vanguard_instances
+    )
+
+    TorRunner(quiet).run(
+        config, True
+    )
 
 
 def main():
@@ -321,8 +330,7 @@ def main():
         if not is_quiet():
             print("\nReceived CTRL+C command. Exiting now.")
 
-    finally:
-        sys_exit(0)
+    sys_exit(0)
 
 
 if __name__ == "__main__":

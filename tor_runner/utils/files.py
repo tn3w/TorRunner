@@ -9,17 +9,17 @@ from shutil import copy2, move, rmtree
 from secrets import token_bytes, token_hex
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Final, Callable, Tuple, Optional, Generator, List, Dict, Any
-from os import listdir, remove, kill, getpid, walk, unlink, fsync, mkdir, cpu_count, path
+from os import listdir, remove, rmdir, kill, getpid, walk, unlink, fsync, mkdir, cpu_count, path
 
 try:
     from utils.utils import (
-        IS_WINDOWS, OPERATING_SYSTEM, ARCHITECTURE, IS_ANDROID,
-        get_mac_address, dummy_context_manager
+        IS_WINDOWS, OPERATING_SYSTEM, ARCHITECTURE,
+        IS_ANDROID, dummy_context_manager
     )
 except ImportError:
     from utils import (
-        IS_WINDOWS, OPERATING_SYSTEM, ARCHITECTURE, IS_ANDROID,
-        get_mac_address, dummy_context_manager
+        IS_WINDOWS, OPERATING_SYSTEM, ARCHITECTURE,
+        IS_ANDROID, dummy_context_manager
     )
 
 if IS_WINDOWS:
@@ -126,7 +126,6 @@ def get_work_path(current_dir: str, seed: str = "") -> str:
     system_info = (
         OPERATING_SYSTEM +
         ARCHITECTURE +
-        (get_mac_address() or "") +
         current_dir +
         seed
     )
@@ -430,6 +429,18 @@ def write(content: Tuple[str, bytes], file_path: str, make_sure: bool = False,
     return execute_write(content, file_path, make_sure, shadow_copy)
 
 
+def delete_file(file_path: str) -> bool:
+    try:
+        remove(file_path)
+        return True
+
+    except (PermissionError, IsADirectoryError, OSError,
+            FileNotFoundError, ValueError):
+        pass
+
+    return False
+
+
 def delete(object_path: str) -> bool:
     """
     Delete a specified file or directory and its contents.
@@ -446,17 +457,19 @@ def delete(object_path: str) -> bool:
         return False
 
     if path.isfile(object_path):
-        try:
-            remove(object_path)
-            return True
+        return delete_file(object_path)
 
-        except (PermissionError, IsADirectoryError, OSError,
-                FileNotFoundError, ValueError):
-            pass
+    for root, directories, files in walk(object_path, topdown=False):
+        for file in files:
+            file_path = path.join(root, file)
+            delete_file(file_path)
 
-        return False
+        for directory in directories:
+            dir_path = path.join(root, directory)
+            rmtree(dir_path)
 
-    rmtree(object_path)
+    rmdir(object_path)
+
     return True
 
 
@@ -652,7 +665,7 @@ class SecureShredder:
         Args:
             directory_path (str): The path to the directory to be shredded.
             iterations (int): The number of times to overwrite each file. 
-                              Defaults to 3.
+                Defaults to 3.
 
         Returns:
             None: This method does not return a value.

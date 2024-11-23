@@ -129,8 +129,7 @@ def get_bridge_type(bridge_string: str) -> str:
     return "vanilla"
 
 
-def get_default_bridges(bridge_type: str = "obfs4", quantity: int = 3,
-                        default_bridge_type: Optional[str] = "obfs4") -> Optional[List[str]]:
+def get_default_bridges(bridge_type: str = "obfs4", quantity: int = 3) -> Optional[List[str]]:
     """
     Returns bridges of a specific `brige_type`.
 
@@ -138,7 +137,6 @@ def get_default_bridges(bridge_type: str = "obfs4", quantity: int = 3,
         bridge_type (str): The type of bridges wanted. Possible: `vanilla`, `obfs4`,
             `snowflake`, `webtunnel`, `meek_azure` or `meek_lite`.
         quantity (int): The number of bridges to be returned.
-        default_bridge_type (str): Optional bridge type if no bridges of the given type exist.
 
     Returns:
         bridges (Union[List[str], Any]): Bridges from type `bridge_type` to number
@@ -146,9 +144,6 @@ def get_default_bridges(bridge_type: str = "obfs4", quantity: int = 3,
     """
 
     bridges = DEFAULT_BRIDGES.get(bridge_type, None)
-    if bridges is None:
-        bridges = DEFAULT_BRIDGES.get(default_bridge_type, None)
-
     if isinstance(bridges, list) and len(bridges) >= quantity:
         bridges = bridges[:quantity]
 

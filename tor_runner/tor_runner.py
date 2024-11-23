@@ -14,23 +14,26 @@ Source: https://github.com/tn3w/TorRunner
 
 from os import mkdir, listdir, path, devnull
 
-import io
-import sys
-import atexit
-import select
-import argparse
+#import io
+#import sys
+#import select
+#import argparse
 from itertools import chain
-from subprocess import Popen
+from time import time, sleep
+from io import TextIOWrapper
 from sys import stdout, stderr
+from subprocess import PIPE, Popen
 from multiprocessing import Process
 from contextlib import contextmanager
+from atexit import register as atexit_register
 from typing import Final, Optional, Tuple, Union, Generator, List, Dict
 
-from utils.files import DirectoryLock, SecureShredder, WORK_DIRECTORY_PATH, TOR_FILE_PATHS, delete
-from utils.tor import hash_control_password, get_bridge_type, install_tor, set_ld_library_path_environ
+from utils.files import DirectoryLock, SecureShredder, HIDDEN_SERVICE_DIRECTORY_PATH, WORK_DIRECTORY_PATH, TOR_FILE_PATHS, delete, write
+from utils.tor import hash_control_password, get_bridge_type, get_default_bridges, install_tor, set_ld_library_path_environ
 from utils.utils import (
-    OPERATING_SYSTEM, ARCHITECTURE,
-    find_available_port, generate_secure_random_string, is_quiet, dummy_context_manager
+    OPERATING_SYSTEM, ARCHITECTURE, find_available_port,
+    generate_secure_random_string, is_quiet, dummy_context_manager,
+    get_percentage
 )
 
 
@@ -76,12 +79,39 @@ class TorConfiguration:
         return configuration_str
 
 
-    def __init__(self, hidden_service_directories: Dict[str, list], bridges: list,
-                 control_port: Optional[int] = None, control_password: Optional[str] = None,
-                 socks_port: Optional[int] = None, vanguard_threads: Optional[int] = None):
+    def __init__(
+            self, hidden_service_directories: Optional[Dict[str, list]] = None,
+            listeners: Optional[list] = None, bridges: Optional[list] = None,
+            bridge_quantity: int = 0, default_bridge_type: Optional[str] = None,
+            control_port: Optional[int] = None, control_password: Optional[str] = None,
+            socks_port: Optional[int] = None, vanguard_instances: Optional[int] = None) -> None:
+
+        if not hidden_service_directories:
+            hidden_service_directories = {}
+
+        if listeners and any(
+                isinstance(listener, tuple) and len(listener) == 2
+                for listener in listeners
+            ):
+
+            if not hidden_service_directories:
+                hidden_service_directories[HIDDEN_SERVICE_DIRECTORY_PATH] = []
+
+            for hidden_service_path, ports in hidden_service_directories.items():
+                ports.extend(listeners)
+                hidden_service_directories[hidden_service_path] = ports
 
         self.hidden_service_directories = hidden_service_directories
-        self.bridges = bridges
+
+        if not bridges:
+            bridges = []
+
+        if not default_bridge_type:
+            default_bridge_type = "obfs4"
+
+        self.bridges = bridges + get_default_bridges(
+            default_bridge_type, max(0, bridge_quantity - len(bridges))
+        )
 
         self.socks_port = socks_port or None
         self.control_port = control_port or find_available_port(9051, exclude_ports = [socks_port])
@@ -90,13 +120,16 @@ class TorConfiguration:
         self.hashed_control_password = hash_control_password(control_password)
         self.control_password = control_password
 
-        self.vanguard_threads = vanguard_threads or 0
+        self.vanguard_instances = vanguard_instances or 0
 
         def get_new_path() -> str:
             while True:
                 random_path = path.join(WORK_DIRECTORY_PATH, generate_secure_random_string(16))
                 if not path.exists(random_path):
                     return random_path
+
+        if not path.isdir(WORK_DIRECTORY_PATH):
+            mkdir(WORK_DIRECTORY_PATH)
 
         # FIXME: Rotating torrc and data directory name length
         data_directory_path = get_new_path()
@@ -106,7 +139,7 @@ class TorConfiguration:
         self.torrc_file_path = get_new_path()
 
 
-    def __str__(self) -> str:
+    def to_string(self) -> str:
         configuration = [
             ("GeoIPFile", TOR_FILE_PATHS["geoip"]),
             ("GeoIPv6File", TOR_FILE_PATHS["geoip6"]),
@@ -123,9 +156,10 @@ class TorConfiguration:
         ]
 
         required_pluggable_transports = []
+        bridge_configuration = []
         for bridge in self.bridges:
             required_pluggable_transports.append(get_bridge_type(bridge))
-            configuration.append(("Bridge", bridge))
+            bridge_configuration.append(("Bridge", bridge))
 
         for pluggable_transport, bridge_types in PLUGGABLE_TRANSPORTS.items():
             for bridge_type in bridge_types:
@@ -133,7 +167,7 @@ class TorConfiguration:
                     continue
 
                 transport = ','.join(bridge_types) + " exec " + \
-                    TOR_FILE_PATHS.get(pluggable_transport)
+                    TOR_FILE_PATHS.get("pluggable_transports/" + pluggable_transport)
 
                 if pluggable_transport == "conjure":
                     transport += (
@@ -144,14 +178,25 @@ class TorConfiguration:
                 configuration.append(("ClientTransportPlugin", transport))
                 break
 
+        configuration += bridge_configuration
+
         for hidden_service_dir, listeners in self.hidden_service_directories.items():
             configuration.append(("HiddenServiceDir", hidden_service_dir))
-            for to_port, from_port in listeners:
+            for listener in listeners:
+                if not listener:
+                    continue
+
+                to_port, from_port = listener
                 configuration.append(
                     ("HiddenServicePort", str(to_port) + " 127.0.0.1:" + str(from_port))
                 )
 
         return self.configuration_to_str(configuration)
+
+
+    def write_to_file(self) -> None:
+        configuration_str = self.to_string()
+        write(configuration_str, self.torrc_file_path)
 
 
 class TorProcess:
@@ -164,7 +209,7 @@ class TorProcess:
 
 
     def __init__(self, configuration: TorConfiguration,
-                 tor_process: Popen, directory_lock_stream: io.TextIOWrapper) -> None:
+                 tor_process: Popen, directory_lock_stream: TextIOWrapper) -> None:
         """
         Initializes a tor process data structure.
 
@@ -184,20 +229,6 @@ class TorProcess:
         self.vanguard_process: Optional[Process] = None
 
 
-def clean() -> None:
-    for file_or_directory_name in listdir(WORK_DIRECTORY_PATH):
-        if not len(file_or_directory_name) == 16:
-            continue
-
-        file_or_directory_path = path.join(WORK_DIRECTORY_PATH, file_or_directory_name)
-        # FIXME: torrc locking
-        if path.isdir(file_or_directory_path) and DirectoryLock(file_or_directory_path).locked:
-            continue
-
-        # FIXME: secure delete with SecureShredder - Scary!
-        delete(file_or_directory_path)
-
-
 class TorRunner:
     """
     TorRunner is a class that runs Tor based on the operating system and architecture.
@@ -205,44 +236,113 @@ class TorRunner:
 
 
     @staticmethod
-    def remove(iterations: int) -> None:
-        if path.isdir(WORK_DIRECTORY_PATH):
-            SecureShredder.directory(WORK_DIRECTORY_PATH, iterations)
+    def clean() -> None:
+        for file_or_directory_name in listdir(WORK_DIRECTORY_PATH):
+            if not len(file_or_directory_name) == 16:
+                continue
+
+            file_or_directory_path = path.join(WORK_DIRECTORY_PATH, file_or_directory_name)
+            if path.isdir(file_or_directory_path) and DirectoryLock(file_or_directory_path).locked:
+                continue
+
+            delete(file_or_directory_path)
+
+
+    @staticmethod
+    def remove(iterations: int = 3) -> None:
+        if not path.isdir(WORK_DIRECTORY_PATH):
+            return
+
+        SecureShredder.directory(WORK_DIRECTORY_PATH, iterations)
 
 
     def __init__(self, quiet: bool = False):
         self.quiet = quiet
         is_installed = install_tor(OPERATING_SYSTEM, ARCHITECTURE)
-        if not (is_installed and quiet):
+        if not is_installed and not quiet:
             print("Tor installation failed.")
 
         self.is_installed = is_installed
+        self.tor_processes = []
 
         if OPERATING_SYSTEM == "linux":
             set_ld_library_path_environ()
 
 
     def execute(self, commands: list[str]) -> None:
-        quiet = is_quiet()
         if not self.is_installed:
-            if not quiet:
+            if not self.quiet:
                 print("Aborting.")
 
             return
 
         commands = [TOR_FILE_PATHS["tor"]] + commands
 
-        devnull_context = open if quiet else dummy_context_manager
+        devnull_context = open if self.quiet else dummy_context_manager
         with devnull_context(devnull, "w", encoding = "utf-8") as null:
             with Popen(
                 commands,
-                stdout = null if quiet else stdout,
-                stderr = null if quiet else stderr
+                stdout = null if self.quiet else stdout,
+                stderr = null if self.quiet else stderr
                 ) as process:
 
                 process.wait()
 
         return
+
+
+    def run(self, configuration: TorConfiguration, wait: bool = False) -> None:
+        if not self.is_installed:
+            if not self.quiet:
+                print("Aborting.")
+
+            return
+
+        configuration.write_to_file()
+        atexit_register(self.clean)
+
+        torrc_file_path = configuration.torrc_file_path
+
+        commands = [TOR_FILE_PATHS["tor"], "-f", torrc_file_path]
+
+        process = Popen(
+            commands, stdout = PIPE,
+            stderr = PIPE, text = True
+        )
+
+        directory_lock_stream = DirectoryLock(
+            configuration.data_directory_path
+        ).create(process.pid)
+
+        tor_process = TorProcess(
+            configuration, process, directory_lock_stream
+        )
+
+        self.tor_processes.append(tor_process)
+
+        output = ""
+        start_time = int(time())
+        while True:
+            if int(time()) - start_time > TOR_TIMEOUT:
+                break
+
+            if process.poll() is not None:
+                break
+
+            line = process.stdout.readline().strip()
+            if line:
+                if not self.quiet:
+                    print(line)
+
+                output += "\n" + line
+
+                percentage = get_percentage(line)
+                if percentage == 100:
+                    SecureShredder.file(torrc_file_path)
+                    break
+
+        while wait:
+            sleep(1)
 
 
 class DeprecatedTorRunner:
