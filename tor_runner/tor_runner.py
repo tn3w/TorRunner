@@ -19,6 +19,7 @@ from os import mkdir, listdir, path, devnull
 #import select
 #import argparse
 from itertools import chain
+from threading import Thread
 from time import time, sleep
 from io import TextIOWrapper
 from sys import stdout, stderr
@@ -44,7 +45,7 @@ PLUGGABLE_TRANSPORTS: Final[dict] = {
 }
 
 
-TOR_TIMEOUT = 120 # Seconds
+TOR_TIMEOUT = 300 # Seconds
 
 
 class TorConfiguration:
@@ -84,7 +85,11 @@ class TorConfiguration:
             listeners: Optional[list] = None, bridges: Optional[list] = None,
             bridge_quantity: int = 0, default_bridge_type: Optional[str] = None,
             control_port: Optional[int] = None, control_password: Optional[str] = None,
-            socks_port: Optional[int] = None, vanguard_instances: Optional[int] = None) -> None:
+            socks_port: Optional[int] = None, vanguard_instances: Optional[int] = None,
+            blacklisted_control_ports: Optional[list] = None) -> None:
+
+        if not blacklisted_control_ports:
+            blacklisted_control_ports = []
 
         if not hidden_service_directories:
             hidden_service_directories = {}
@@ -113,14 +118,19 @@ class TorConfiguration:
             default_bridge_type, max(0, bridge_quantity - len(bridges))
         )
 
-        self.socks_port = socks_port or None
-        self.control_port = control_port or find_available_port(9051, exclude_ports = [socks_port])
+        socks_port = socks_port or None
+        self.socks_port = socks_port
+        control_port = control_port or find_available_port(
+            9051, exclude_ports = [socks_port] + blacklisted_control_ports
+        )
+        self.control_port = control_port
 
         control_password = control_password or generate_secure_random_string(32)
         self.hashed_control_password = hash_control_password(control_password)
         self.control_password = control_password
 
         self.vanguard_instances = vanguard_instances or 0
+        self.blacklisted_control_ports = [socks_port, control_port] + blacklisted_control_ports
 
         def get_new_path() -> str:
             while True:
@@ -137,6 +147,18 @@ class TorConfiguration:
 
         self.data_directory_path = data_directory_path
         self.torrc_file_path = get_new_path()
+
+
+    def create_child(self) -> "TorConfiguration":
+        child = TorConfiguration(
+            self.hidden_service_directories,
+            bridges = self.bridges,
+            vanguard_instances = self.vanguard_instances,
+            blacklisted_control_ports = self.blacklisted_control_ports
+        )
+
+        self.blacklisted_control_ports += child.blacklisted_control_ports
+        return child
 
 
     def to_string(self) -> str:
@@ -199,37 +221,97 @@ class TorConfiguration:
         write(configuration_str, self.torrc_file_path)
 
 
+class TorStatus:
+
+    def __init__(self, index: bool, quiet: bool) -> None:
+        self.index = index
+        self.quiet = quiet
+
+        self.alive = True
+        self.started_successfully = False
+
+        self.output = ""
+        self.percentage = 0
+
+        self.code = None
+        self.error_message = None
+
+        self._log("Starting...")
+
+
+    def _log(self, message: str) -> None:
+        if getattr(self, "quiet", False):
+            return
+
+        print(f"Tor process #{getattr(self, 'index', 0)}: " + message)
+
+
+    def add_line(self, line: str) -> None:
+        self.output += line + "\n"
+
+        percentage = get_percentage(line)
+        if percentage and (percentage := min(percentage, 100)) > self.percentage:
+            self.percentage = percentage
+
+            if percentage == 100:
+                self.started_successfully = True
+                self._log("Started successfully.")
+            else:
+                self._log(f"{percentage}%")
+
+
+    def handle_error(self, code: Optional[int] = None, error_message: Optional[str] = None) -> None:
+        self.alive = False
+
+        if code:
+            if not error_message and not self.error_message:
+                error_message = f"Process was terminated with code {code}."
+
+            self.code = code
+
+        if error_message:
+            self.error_message = error_message
+            self._log(error_message)
+            self._log(f"--- #{self.index} Error Output ---\n{self.output}\n--- End ---")
+
+
 class TorProcess:
-    """
-    A class to manage a Tor process.
 
-    This class encapsulates the functionality required to start and control a Tor process,
-    including handling the control port, authentication, and configuration settings.
-    """
-
-
-    def __init__(self, configuration: TorConfiguration,
-                 tor_process: Popen, directory_lock_stream: TextIOWrapper) -> None:
-        """
-        Initializes a tor process data structure.
-
-        Args:
-            tor_process (Popen): The subprocess instance representing
-                the running Tor process.
-
-        Returns:
-            None: none
-        """
-
-        # FIXME: Update docstring
+    def __init__(self, index: int, configuration: TorConfiguration, process: Popen,
+                 directory_lock_stream: TextIOWrapper, quiet: bool = False) -> None:
 
         self.configuration = configuration
-        self.tor_process = tor_process
+        self.process = process
         self.directory_lock_stream = directory_lock_stream
-        self.vanguard_process: Optional[Process] = None
+        self.status = TorStatus(index, quiet)
+        self.vanguard_instances: list[Process] = []
+
+
+    def register_vanguard_process(self, vanguard_instance: Process) -> None:
+        self.vanguard_instances.append(vanguard_instance)
 
 
 class TorRunner:
+
+    @staticmethod
+    def kill(tor_process: Optional[TorProcess] = None) -> None:
+        try:
+            tor_process.process.terminate()
+        finally:
+            pass
+
+        try:
+            for vanguard_instance in tor_process.vanguard_instances:
+                vanguard_instance.terminate()
+                vanguard_instance.join()
+        finally:
+            pass
+
+        DirectoryLock(tor_process.configuration.data_directory_path) \
+            .remove(tor_process.directory_lock_stream)
+
+        delete(tor_process.configuration.torrc_file_path)
+        delete(tor_process.configuration.data_directory_path)
 
     @staticmethod
     def clean() -> None:
@@ -256,6 +338,8 @@ class TorRunner:
 
 
     def __init__(self, quiet: bool = False):
+        self.clean()
+
         self.quiet = quiet
         is_installed = install_tor(OPERATING_SYSTEM, ARCHITECTURE)
         if not is_installed and not quiet:
@@ -290,16 +374,48 @@ class TorRunner:
         return
 
 
-    def run(self, configuration: TorConfiguration, wait: bool = False) -> None:
-        if not self.is_installed:
-            if not self.quiet:
-                print("Aborting.")
+    @staticmethod
+    def monitor_output(process: Popen, tor_process: TorProcess,
+                       write_to_console: bool = False) -> None:
+        start_time = int(time())
+        last_cycle = None
+        while tor_process.status.alive:
+            if (int(time()) - start_time > TOR_TIMEOUT) \
+                and not tor_process.status.started_successfully:
 
-            return
+                tor_process.status.handle_error(
+                    error_message = (
+                        "Process has not started within the specified "
+                        f"timeout period ({TOR_TIMEOUT} s)."
+                    )
+                )
+                process.terminate()
 
+                break
+
+            line = process.stdout.readline().strip()
+            if line:
+                tor_process.status.add_line(line)
+
+                if write_to_console:
+                    print(line)
+            elif process.poll():
+                tor_process.status.handle_error(process.returncode)
+
+            if not last_cycle:
+                last_cycle = start_time
+
+            if int(time()) - last_cycle < 1:
+                sleep(0.2)
+
+            last_cycle = int(time())
+
+        TorRunner.kill(tor_process)
+
+
+    def _tor_run(self, index: int, configuration: TorConfiguration,
+                 write_to_console: bool = False) -> None:
         configuration.write_to_file()
-        atexit_register(self.clean)
-
         torrc_file_path = configuration.torrc_file_path
 
         commands = [TOR_FILE_PATHS["tor"], "-f", torrc_file_path]
@@ -314,31 +430,38 @@ class TorRunner:
         ).create(process.pid)
 
         tor_process = TorProcess(
-            configuration, process, directory_lock_stream
+            index, configuration, process,
+            directory_lock_stream, write_to_console
         )
 
         self.tor_processes.append(tor_process)
 
-        output = ""
-        start_time = int(time())
-        while True:
-            if int(time()) - start_time > TOR_TIMEOUT:
-                break
+        Thread(
+            target = self.monitor_output,
+            args = (process, tor_process, write_to_console, ),
+        ).start()
 
-            if process.poll() is not None:
-                break
+        return tor_process
 
-            line = process.stdout.readline().strip()
-            if line:
-                if not self.quiet:
-                    print(line)
 
-                output += "\n" + line
+    def run(self, configuration: TorConfiguration,
+            instances: Optional[int] = None, wait: bool = False) -> None:
+        if not self.is_installed:
+            if not self.quiet:
+                print("Aborting.")
 
-                percentage = get_percentage(line)
-                if percentage == 100:
-                    SecureShredder.file(torrc_file_path)
-                    break
+            return
+
+        if not instances:
+            instances = 1
+
+        atexit_register(self.clean)
+
+        for index in range(instances):
+            config = configuration if index == 0 else configuration.create_child()
+            write_to_console = instances == 1 and not self.quiet
+
+            self._tor_run(index, config, write_to_console)
 
         while wait:
             sleep(1)

@@ -299,6 +299,7 @@ def execute_main() -> None:
         parser.print_help()
         return
 
+    instances = getattr(args, "instances")
     hidden_service_directories = parse_hidden_service_dirs(getattr(args, "hidden_service_dirs"))
     listeners = getattr(args, "listeners")
     bridges, bridge_quantity = parse_bridges(getattr(args, "bridges"))
@@ -315,7 +316,7 @@ def execute_main() -> None:
     )
 
     TorRunner(quiet).run(
-        config, True
+        config, instances, True
     )
 
 
