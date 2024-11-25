@@ -19,22 +19,20 @@ from os import mkdir, listdir, path, devnull
 #import select
 #import argparse
 from itertools import chain
-from threading import Thread
 from time import time, sleep
 from io import TextIOWrapper
 from sys import stdout, stderr
 from subprocess import PIPE, Popen
-from multiprocessing import Process
 from contextlib import contextmanager
+from multiprocessing import Process, Value
 from atexit import register as atexit_register
 from typing import Final, Optional, Tuple, Union, Generator, List, Dict
 
-from utils.files import DirectoryLock, SecureShredder, HIDDEN_SERVICE_DIRECTORY_PATH, WORK_DIRECTORY_PATH, TOR_FILE_PATHS, delete, write
+from utils.files import DirectoryLock, SecureShredder, HIDDEN_SERVICE_DIRECTORY_PATH, WORK_DIRECTORY_PATH, TOR_FILE_PATHS, delete, read, write
 from utils.tor import hash_control_password, get_bridge_type, get_default_bridges, install_tor, set_ld_library_path_environ
 from utils.utils import (
     OPERATING_SYSTEM, ARCHITECTURE, find_available_port,
-    generate_secure_random_string, is_quiet, dummy_context_manager,
-    get_percentage
+    generate_secure_random_string, dummy_context_manager, get_percentage
 )
 
 
@@ -223,8 +221,9 @@ class TorConfiguration:
 
 class TorStatus:
 
-    def __init__(self, index: bool, quiet: bool) -> None:
+    def __init__(self, index: bool, shared_started, quiet: bool) -> None:
         self.index = index
+        self.shared_started = shared_started
         self.quiet = quiet
 
         self.alive = True
@@ -255,6 +254,10 @@ class TorStatus:
 
             if percentage == 100:
                 self.started_successfully = True
+
+                with self.shared_started.get_lock():
+                    self.shared_started.value += 1
+
                 self._log("Started successfully.")
             else:
                 self._log(f"{percentage}%")
@@ -277,21 +280,23 @@ class TorStatus:
 
 class TorProcess:
 
-    def __init__(self, index: int, configuration: TorConfiguration, process: Popen,
-                 directory_lock_stream: TextIOWrapper, quiet: bool = False) -> None:
+    def __init__(self, index: int, configuration: TorConfiguration, shared_started,
+                 process: Popen, directory_lock_stream: TextIOWrapper,
+                 quiet: bool = False) -> None:
 
         self.configuration = configuration
         self.process = process
         self.directory_lock_stream = directory_lock_stream
-        self.status = TorStatus(index, quiet)
-        self.vanguard_instances: list[Process] = []
+        self.status = TorStatus(index, shared_started, quiet)
+        self.processes: list[Process] = []
 
 
-    def register_vanguard_process(self, vanguard_instance: Process) -> None:
-        self.vanguard_instances.append(vanguard_instance)
+    def add_process(self, process: Process) -> None:
+        self.processes.append(process)
 
 
 class TorRunner:
+
 
     @staticmethod
     def kill(tor_process: Optional[TorProcess] = None) -> None:
@@ -301,9 +306,9 @@ class TorRunner:
             pass
 
         try:
-            for vanguard_instance in tor_process.vanguard_instances:
-                vanguard_instance.terminate()
-                vanguard_instance.join()
+            for process in tor_process.processes:
+                process.terminate()
+                process.join()
         finally:
             pass
 
@@ -312,6 +317,7 @@ class TorRunner:
 
         delete(tor_process.configuration.torrc_file_path)
         delete(tor_process.configuration.data_directory_path)
+
 
     @staticmethod
     def clean() -> None:
@@ -337,6 +343,29 @@ class TorRunner:
         SecureShredder.directory(WORK_DIRECTORY_PATH, iterations)
 
 
+    @staticmethod
+    def get_host_names(hidden_service_directories: list) -> list:
+        host_name_file_paths = [
+            path.join(directory, "hostname")
+            for directory in hidden_service_directories
+        ]
+        host_names = {}
+        while sorted(host_names.keys()) != sorted(host_name_file_paths):
+            for host_name_file_path in host_name_file_paths:
+                if host_name_file_path in host_names or\
+                    not path.isfile(host_name_file_path):
+
+                    continue
+
+                host_name = read(host_name_file_path, shadow_copy = False)
+                if host_name and isinstance(host_name, str):
+                    host_names[host_name_file_path] = host_name.strip()
+
+            sleep(0.2)
+
+        return list(host_names.values())
+
+
     def __init__(self, quiet: bool = False):
         self.clean()
 
@@ -346,7 +375,7 @@ class TorRunner:
             print("Tor installation failed.")
 
         self.is_installed = is_installed
-        self.tor_processes = []
+        self.tor_processes: list[TorProcess] = []
 
         if OPERATING_SYSTEM == "linux":
             set_ld_library_path_environ()
@@ -377,44 +406,48 @@ class TorRunner:
     @staticmethod
     def monitor_output(process: Popen, tor_process: TorProcess,
                        write_to_console: bool = False) -> None:
-        start_time = int(time())
-        last_cycle = None
-        while tor_process.status.alive:
-            if (int(time()) - start_time > TOR_TIMEOUT) \
-                and not tor_process.status.started_successfully:
+        try:
+            start_time = int(time())
+            last_cycle = None
+            while tor_process.status.alive:
+                if (int(time()) - start_time > TOR_TIMEOUT) \
+                    and not tor_process.status.started_successfully:
 
-                tor_process.status.handle_error(
-                    error_message = (
-                        "Process has not started within the specified "
-                        f"timeout period ({TOR_TIMEOUT} s)."
+                    tor_process.status.handle_error(
+                        error_message = (
+                            "Process has not started within the specified "
+                            f"timeout period ({TOR_TIMEOUT} s)."
+                        )
                     )
-                )
-                process.terminate()
+                    process.terminate()
 
-                break
+                    break
 
-            line = process.stdout.readline().strip()
-            if line:
-                tor_process.status.add_line(line)
+                line = process.stdout.readline().strip()
+                if line:
+                    tor_process.status.add_line(line)
 
-                if write_to_console:
-                    print(line)
-            elif process.poll():
-                tor_process.status.handle_error(process.returncode)
+                    if write_to_console:
+                        print(line)
+                elif process.poll():
+                    tor_process.status.handle_error(process.returncode)
 
-            if not last_cycle:
-                last_cycle = start_time
+                if not last_cycle:
+                    last_cycle = start_time
 
-            if int(time()) - last_cycle < 1:
-                sleep(0.2)
+                if int(time()) - last_cycle < 1:
+                    sleep(0.2)
 
-            last_cycle = int(time())
+                last_cycle = int(time())
 
-        TorRunner.kill(tor_process)
+            TorRunner.kill(tor_process)
+
+        except KeyboardInterrupt:
+            pass
 
 
     def _tor_run(self, index: int, configuration: TorConfiguration,
-                 write_to_console: bool = False) -> None:
+                 shared_started, write_to_console: bool = False) -> None:
         configuration.write_to_file()
         torrc_file_path = configuration.torrc_file_path
 
@@ -430,18 +463,40 @@ class TorRunner:
         ).create(process.pid)
 
         tor_process = TorProcess(
-            index, configuration, process,
+            index, configuration, shared_started, process,
             directory_lock_stream, write_to_console
         )
 
-        self.tor_processes.append(tor_process)
-
-        Thread(
+        process = Process(
             target = self.monitor_output,
             args = (process, tor_process, write_to_console, ),
-        ).start()
+        )
+        process.start()
+
+        tor_process.add_process(process)
+        self.tor_processes.append(tor_process)
 
         return tor_process
+
+
+    def print_hostname(self, hidden_service_directories: dict,
+                       instances: bool, shared_started) -> None:
+        try:
+            host_names = self.get_host_names(
+                list(hidden_service_directories.keys())
+            )
+
+            while True:
+                with shared_started.get_lock():
+                    if shared_started.value >= instances:
+                        break
+
+                sleep(0.2)
+
+            print("Running on", ", ".join(host_names))
+
+        except KeyboardInterrupt:
+            pass
 
 
     def run(self, configuration: TorConfiguration,
@@ -457,11 +512,25 @@ class TorRunner:
 
         atexit_register(self.clean)
 
+        shared_started = Value('i', 0)
+
         for index in range(instances):
             config = configuration if index == 0 else configuration.create_child()
             write_to_console = instances == 1 and not self.quiet
 
-            self._tor_run(index, config, write_to_console)
+            self._tor_run(index, config, shared_started, write_to_console)
+
+        if configuration.hidden_service_directories:
+            process = Process(
+                target = self.print_hostname,
+                args = (
+                    configuration.hidden_service_directories,
+                    instances, shared_started,
+                )
+            )
+            process.start()
+
+            self.tor_processes[0].add_process(process)
 
         while wait:
             sleep(1)

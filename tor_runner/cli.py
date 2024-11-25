@@ -304,6 +304,9 @@ def execute_main() -> None:
     listeners = getattr(args, "listeners")
     bridges, bridge_quantity = parse_bridges(getattr(args, "bridges"))
     default_bridge_type = getattr(args, "default_bridge_type")
+    if default_bridge_type and bridge_quantity == 0:
+        bridge_quantity = 3
+
     control_port = getattr(args, "control_port")
     control_password = getattr(args, "control_password")
     socks_port = getattr(args, "socks_port")
@@ -329,7 +332,7 @@ def main():
         execute_main()
     except KeyboardInterrupt:
         if not is_quiet():
-            print("\nReceived CTRL+C command. Exiting now.")
+            print("\n\nReceived CTRL+C command. Exiting now.")
 
     sys_exit(0)
 
