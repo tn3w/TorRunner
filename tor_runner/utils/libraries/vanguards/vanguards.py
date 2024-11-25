@@ -513,9 +513,3 @@ class Vanguards:
             atexit.register(terminate_process, process = process)
 
             process_list.append(process)
-
-        for process in process_list:
-            if not process.is_alive():
-                continue
-
-            process.join()

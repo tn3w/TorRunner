@@ -304,22 +304,22 @@ def execute_main() -> None:
     listeners = getattr(args, "listeners")
     bridges, bridge_quantity = parse_bridges(getattr(args, "bridges"))
     default_bridge_type = getattr(args, "default_bridge_type")
-    if default_bridge_type and bridge_quantity == 0:
-        bridge_quantity = 3
-
     control_port = getattr(args, "control_port")
     control_password = getattr(args, "control_password")
     socks_port = getattr(args, "socks_port")
     vanguard_instances = getattr(args, "vanguard_instances")
 
-    config = TorConfiguration(
+    if default_bridge_type and bridge_quantity == 0:
+        bridge_quantity = 3
+
+    configuration = TorConfiguration(
         hidden_service_directories, listeners, bridges,
         bridge_quantity, default_bridge_type, control_port,
         control_password, socks_port, vanguard_instances
     )
 
     TorRunner(quiet).run(
-        config, instances, True
+        configuration, instances, True
     )
 
 

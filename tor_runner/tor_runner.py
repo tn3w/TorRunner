@@ -24,7 +24,7 @@ from io import TextIOWrapper
 from sys import stdout, stderr
 from subprocess import PIPE, Popen
 from contextlib import contextmanager
-from multiprocessing import Process, Value
+from multiprocessing import Process, Manager
 from atexit import register as atexit_register
 from typing import Final, Optional, Tuple, Union, Generator, List, Dict
 
@@ -44,6 +44,17 @@ PLUGGABLE_TRANSPORTS: Final[dict] = {
 
 
 TOR_TIMEOUT = 300 # Seconds
+
+
+def terminate_process(process: Process) -> None:
+    try:
+        if not isinstance(process, Process):
+            return
+
+        process.terminate()
+        process.join()
+    except Exception:
+        pass
 
 
 class TorConfiguration:
@@ -221,9 +232,11 @@ class TorConfiguration:
 
 class TorStatus:
 
-    def __init__(self, index: bool, shared_started, quiet: bool) -> None:
+    def __init__(self, tor_process: "TorProcess", index: bool,
+                 started_tor_ids, quiet: bool) -> None:
+        self.tor_process = tor_process
         self.index = index
-        self.shared_started = shared_started
+        self.started_tor_ids = started_tor_ids
         self.quiet = quiet
 
         self.alive = True
@@ -255,8 +268,7 @@ class TorStatus:
             if percentage == 100:
                 self.started_successfully = True
 
-                with self.shared_started.get_lock():
-                    self.shared_started.value += 1
+                self.started_tor_ids.append(self.tor_process.id)
 
                 self._log("Started successfully.")
             else:
@@ -280,19 +292,15 @@ class TorStatus:
 
 class TorProcess:
 
-    def __init__(self, index: int, configuration: TorConfiguration, shared_started,
+    def __init__(self, index: int, configuration: TorConfiguration, started_tor_ids,
                  process: Popen, directory_lock_stream: TextIOWrapper,
                  quiet: bool = False) -> None:
 
+        self.id = generate_secure_random_string(32)
         self.configuration = configuration
         self.process = process
         self.directory_lock_stream = directory_lock_stream
-        self.status = TorStatus(index, shared_started, quiet)
-        self.processes: list[Process] = []
-
-
-    def add_process(self, process: Process) -> None:
-        self.processes.append(process)
+        self.status = TorStatus(self, index, started_tor_ids, quiet)
 
 
 class TorRunner:
@@ -302,13 +310,6 @@ class TorRunner:
     def kill(tor_process: Optional[TorProcess] = None) -> None:
         try:
             tor_process.process.terminate()
-        finally:
-            pass
-
-        try:
-            for process in tor_process.processes:
-                process.terminate()
-                process.join()
         finally:
             pass
 
@@ -446,8 +447,66 @@ class TorRunner:
             pass
 
 
+    def _vanguards_run(self, max_threads: int, instances: int,
+                       tor_processes, started_tor_ids: list[TorProcess]) -> None:
+        if instances == 0:
+            return
+
+        try:
+            __import__('stem')
+        except ImportError:
+            if not self.quiet:
+                print("Stem is not installed - use `pip install stem`")
+
+            return
+
+        try:
+            from utils.libraries.vanguards import Vanguards
+        except ImportError as exception:
+            if not self.quiet:
+                print("Error occurred while importing Vanguards:", exception)
+
+            return
+
+        vanguards_process = Process(
+            target = self._vanguards_worker,
+            args = (
+                Vanguards, max_threads, instances,
+                tor_processes, started_tor_ids,
+            )
+        )
+        vanguards_process.run()
+
+        atexit_register(terminate_process, process = vanguards_process)
+
+
+    def _vanguards_worker(self, vanguards: "Vanguards", max_threads: int,
+                          instances: int, tor_processes, started_tor_ids) -> None:
+        done_tor_processes = []
+        while True:
+            for tor_process_id in started_tor_ids:
+                tor_process = None
+                for process in tor_processes:
+                    if tor_process_id == process.id:
+                        tor_process = process
+
+                if not tor_process or tor_process in done_tor_processes:
+                    continue
+
+                done_tor_processes.append(tor_process)
+
+                vanguards(
+                    tor_process.configuration.data_directory_path,
+                    tor_process.configuration.control_port,
+                    tor_process.configuration.control_password
+                ).run(instances)
+
+            if len(started_tor_ids) >= max_threads:
+                break
+
+
     def _tor_run(self, index: int, configuration: TorConfiguration,
-                 shared_started, write_to_console: bool = False) -> None:
+                 started_tor_ids, write_to_console: bool = False) -> None:
         configuration.write_to_file()
         torrc_file_path = configuration.torrc_file_path
 
@@ -463,9 +522,11 @@ class TorRunner:
         ).create(process.pid)
 
         tor_process = TorProcess(
-            index, configuration, shared_started, process,
+            index, configuration, started_tor_ids, process,
             directory_lock_stream, write_to_console
         )
+
+        self.tor_processes.append(tor_process)
 
         process = Process(
             target = self.monitor_output,
@@ -473,23 +534,21 @@ class TorRunner:
         )
         process.start()
 
-        tor_process.add_process(process)
-        self.tor_processes.append(tor_process)
+        atexit_register(terminate_process, process = process)
 
         return tor_process
 
 
     def print_hostname(self, hidden_service_directories: dict,
-                       instances: bool, shared_started) -> None:
+                       started_tor_ids) -> None:
         try:
             host_names = self.get_host_names(
                 list(hidden_service_directories.keys())
             )
 
             while True:
-                with shared_started.get_lock():
-                    if shared_started.value >= instances:
-                        break
+                if len(started_tor_ids) >= 1:
+                    break
 
                 sleep(0.2)
 
@@ -512,25 +571,32 @@ class TorRunner:
 
         atexit_register(self.clean)
 
-        shared_started = Value('i', 0)
+        started_tor_ids = Manager().list()
 
         for index in range(instances):
             config = configuration if index == 0 else configuration.create_child()
             write_to_console = instances == 1 and not self.quiet
 
-            self._tor_run(index, config, shared_started, write_to_console)
+            self._tor_run(
+                index, config, started_tor_ids, write_to_console
+            )
 
         if configuration.hidden_service_directories:
             process = Process(
                 target = self.print_hostname,
                 args = (
                     configuration.hidden_service_directories,
-                    instances, shared_started,
+                    started_tor_ids,
                 )
             )
             process.start()
 
-            self.tor_processes[0].add_process(process)
+            atexit_register(terminate_process, process = process)
+
+        self._vanguards_run(
+            instances, configuration.vanguard_instances,
+            self.tor_processes, started_tor_ids
+        )
 
         while wait:
             sleep(1)
