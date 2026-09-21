@@ -1,0 +1,26 @@
+[project]
+name = "tor_runner"
+version = "2.0.0"
+description = "Expose local ports as Tor onion services, Tor is downloaded automatically"
+readme = "README.md"
+authors = [{ name = "TN3W", email = "tn3w@protonmail.com" }]
+license = "GPL-3.0-only"
+requires-python = ">=3.10"
+dependencies = []
+keywords = ["tor", "onion", "hidden-service", "flask", "privacy"]
+classifiers = [
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Topic :: Internet :: Proxy Servers",
+    "Topic :: Security",
+]
+
+[project.scripts]
+tor_runner = "tor_runner.__main__:main"
+
+[project.urls]
+Repository = "https://github.com/tn3w/TorRunner"
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
